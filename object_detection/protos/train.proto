@@ -61,4 +61,10 @@ message TrainConfig {
 
   // Maximum capacity of the queue used to prefetch assembled batches.
   optional int32 prefetch_queue_capacity = 16 [default=10];
+
+  // How often to write checkpoints.
+  optional uint32 save_interval_secs = 17 [default=600];
+
+  // How often to write training summaries.
+  optional uint32 save_summaries_secs = 18 [default=120];
 }

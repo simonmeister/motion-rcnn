@@ -1,0 +1,49 @@
+item {
+  id: 1
+  name: 'person'
+}
+
+item {
+  id: 2
+  name: 'rider'
+}
+
+item {
+  id: 3
+  name: 'car'
+}
+
+item {
+  id: 4
+  name: 'truck'
+}
+
+item {
+  id: 5
+  name: 'bus'
+}
+
+item {
+  id: 6
+  name: 'caravan'
+}
+
+item {
+  id: 7
+  name: 'trailer'
+}
+
+item {
+  id: 8
+  name: 'train'
+}
+
+item {
+  id: 9
+  name: 'motorcycle'
+}
+
+item {
+  id: 10
+  name: 'bicycle'
+}

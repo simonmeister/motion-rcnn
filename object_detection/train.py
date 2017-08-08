@@ -84,6 +84,8 @@ flags.DEFINE_string('input_config_path', '',
                     'Path to an input_reader_pb2.InputReader config file.')
 flags.DEFINE_string('model_config_path', '',
                     'Path to a model_pb2.DetectionModel config file.')
+flags.DEFINE_string('gpu', '',
+                    'Specify GPU id or leave empty to train on CPU.')
 
 FLAGS = flags.FLAGS
 
@@ -138,6 +140,8 @@ def get_configs_from_multiple_files():
 
 
 def main(_):
+  os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
+
   assert FLAGS.train_dir, '`train_dir` is missing.'
   if FLAGS.pipeline_config_path:
     model_config, train_config, input_config = get_configs_from_pipeline_file()
