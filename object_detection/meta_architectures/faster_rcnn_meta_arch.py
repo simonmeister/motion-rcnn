@@ -214,6 +214,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
                second_stage_score_conversion_fn,
                second_stage_localization_loss_weight,
                second_stage_classification_loss_weight,
+               second_stage_mask_loss_weight=None,
                hard_example_miner,
                parallel_iterations=16):
     """FasterRCNNMetaArch Constructor.
@@ -297,6 +298,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
         used to convert logits to probabilities.
       second_stage_localization_loss_weight: A float
       second_stage_classification_loss_weight: A float
+      second_stage_mask_loss_weight: A float
       hard_example_miner:  A losses.HardExampleMiner object (can be None).
       parallel_iterations: (Optional) The number of iterations allowed to run
         in parallel for calls to tf.map_fn.
@@ -377,8 +379,11 @@ class FasterRCNNMetaArch(model.DetectionModel):
         losses.WeightedSmoothL1LocalizationLoss(anchorwise_output=True))
     self._second_stage_classification_loss = (
         losses.WeightedSoftmaxClassificationLoss(anchorwise_output=True))
+    self._second_stage_mask_loss = (
+        losses.WeightedSigmoidClassificationLoss(anchorwise_output=True))
     self._second_stage_loc_loss_weight = second_stage_localization_loss_weight
     self._second_stage_cls_loss_weight = second_stage_classification_loss_weight
+    self._second_stage_mask_loss_weight = second_stage_mask_loss_weight
     self._hard_example_miner = hard_example_miner
     self._parallel_iterations = parallel_iterations
 
@@ -623,6 +628,11 @@ class FasterRCNNMetaArch(model.DetectionModel):
         'num_proposals': num_proposals,
         'proposal_boxes': absolute_proposal_boxes,
     }
+
+    if box_predictor.MASK_PREDICTIONS in box_predictions:
+      mask_predictions = box_predictions[box_predictor.MASK_PREDICTIONS]
+      prediction_dict['mask_predictions'] = mask_predictions
+
     return prediction_dict
 
   def _extract_rpn_feature_maps(self, preprocessed_inputs):
@@ -890,7 +900,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     if self._is_training:
       proposal_boxes = tf.stop_gradient(proposal_boxes)
       if not self._hard_example_miner:
-        (groundtruth_boxlists, groundtruth_classes_with_background_list,
+        (groundtruth_boxlists, groundtruth_classes_with_background_list, _
          ) = self._format_groundtruth_data(image_shape)
         (proposal_boxes, proposal_scores,
          num_proposals) = self._unpad_proposals_and_sample_box_classifier_batch(
@@ -1009,6 +1019,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
       groundtruth_classes_with_background_list: A list of 2-D one-hot
         (or k-hot) tensors of shape [num_boxes, num_classes+1] containing the
         class targets with the 0th index assumed to map to the background class.
+      groundtruth_masks_list: a list of 2-D tf.float32 tensors of
+        shape [num_boxes, height_in, width_in] containing instance
+        masks with values in {0, 1}. Will be None if no masks are provided.
     """
     groundtruth_boxlists = [
         box_list_ops.to_absolute_coordinates(
@@ -1019,7 +1032,11 @@ class FasterRCNNMetaArch(model.DetectionModel):
             tf.pad(one_hot_encoding, [[0, 0], [1, 0]], mode='CONSTANT'))
         for one_hot_encoding in self.groundtruth_lists(
             fields.BoxListFields.classes)]
-    return groundtruth_boxlists, groundtruth_classes_with_background_list
+    try:
+        groundtruth_masks_list = self.groundtruth_lists(fields.BoxListFields.masks)
+    except RuntimeError:
+        groundtruth_masks_list = None
+    return groundtruth_boxlists, groundtruth_classes_with_background_list, groundtruth_masks_list
 
   def _sample_box_classifier_minibatch(self,
                                        proposal_boxlist,
@@ -1246,7 +1263,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
         corresponding loss values.
     """
     with tf.name_scope(scope, 'Loss', prediction_dict.values()):
-      (groundtruth_boxlists, groundtruth_classes_with_background_list
+      (groundtruth_boxlists, groundtruth_classes_with_background_list, groundtruth_masks_list
       ) = self._format_groundtruth_data(prediction_dict['image_shape'])
       loss_dict = self._loss_rpn(
           prediction_dict['rpn_box_encodings'],
@@ -1262,7 +1279,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
                 prediction_dict['proposal_boxes'],
                 prediction_dict['num_proposals'],
                 groundtruth_boxlists,
-                groundtruth_classes_with_background_list))
+                groundtruth_classes_with_background_list,
+                prediction_dict.get('mask_predictions'),
+                groundtruth_masks_list))
     return loss_dict
 
   def _loss_rpn(self,
@@ -1348,7 +1367,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
                            proposal_boxes,
                            num_proposals,
                            groundtruth_boxlists,
-                           groundtruth_classes_with_background_list):
+                           groundtruth_classes_with_background_list,
+                           mask_predictions=None,
+                           groundtruth_masks_list=None):
     """Computes scalar box classifier loss tensors.
 
     Uses self._detector_target_assigner to obtain regression and classification
@@ -1396,6 +1417,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
       normalizer = tf.tile(num_proposals_or_one,
                            [1, self.max_num_proposals]) * batch_size
 
+      # TODO extend batch_assign_targets to return mask targets
       (batch_cls_targets_with_background, batch_cls_weights, batch_reg_targets,
        batch_reg_weights, _) = target_assigner.batch_assign_targets(
            self._detector_target_assigner, proposal_boxlists,
@@ -1428,17 +1450,28 @@ class FasterRCNNMetaArch(model.DetectionModel):
       second_stage_cls_loss = tf.reduce_sum(
           tf.boolean_mask(second_stage_cls_losses, paddings_indicator))
 
-      if self._hard_example_miner:
+      if self._hard_example_miner: # TODO masks?!
         (second_stage_loc_loss, second_stage_cls_loss
         ) = self._unpad_proposals_and_apply_hard_mining(
             proposal_boxlists, second_stage_loc_losses,
             second_stage_cls_losses, num_proposals)
+      # TODO add mask loss, (also compute it with _second_stage_mask_loss)
       loss_dict = {
           'second_stage_localization_loss':
           (self._second_stage_loc_loss_weight * second_stage_loc_loss),
           'second_stage_classification_loss':
-          (self._second_stage_cls_loss_weight * second_stage_cls_loss),
+          (self._second_stage_cls_loss_weight * second_stage_cls_loss)
       }
+
+      if mask_predictions is not None:
+        if groundtruth_masks_list is None:
+          raise RuntimeError('No groundtruth masks provided.')
+        second_stage_mask_loss = ... # TODO
+        loss_dict.update({
+            'second_stage_mask_loss':
+            (self._second_stage_mask_loss_weight * second_stage_mask_loss)
+        })
+
     return loss_dict
 
   def _padded_batched_proposals_indicator(self,

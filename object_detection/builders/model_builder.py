@@ -250,9 +250,12 @@ def _build_faster_rcnn_model(frcnn_config, is_training):
       frcnn_config.second_stage_localization_loss_weight)
   second_stage_classification_loss_weight = (
       frcnn_config.second_stage_classification_loss_weight)
+  second_stage_mask_loss_weight = (
+      frcnn_config.second_stage_mask_loss_weight)
 
   hard_example_miner = None
   if frcnn_config.HasField('hard_example_miner'):
+    assert False, "Take care of mask loss" # TODO
     hard_example_miner = losses_builder.build_hard_example_miner(
         frcnn_config.hard_example_miner,
         second_stage_classification_loss_weight,
@@ -288,6 +291,8 @@ def _build_faster_rcnn_model(frcnn_config, is_training):
       second_stage_localization_loss_weight,
       'second_stage_classification_loss_weight':
       second_stage_classification_loss_weight,
+      'second_stage_mask_loss_weight':
+      second_stage_mask_loss_weight,
       'hard_example_miner': hard_example_miner}
 
   if isinstance(second_stage_box_predictor, box_predictor.RfcnBoxPredictor):

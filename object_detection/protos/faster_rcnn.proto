@@ -116,8 +116,11 @@ message FasterRcnn {
   // Second stage classification loss weight
   optional float second_stage_classification_loss_weight = 26 [default=1.0];
 
+  // Second stage mask loss weight (loss disabled if no masks are predicted)
+  optional float second_stage_mask_loss_weight = 27 [default=1.0];
+
   // If not left to default, applies hard example mining.
-  optional HardExampleMiner hard_example_miner = 27;
+  optional HardExampleMiner hard_example_miner = 28;
 }
 
 
