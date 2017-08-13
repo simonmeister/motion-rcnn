@@ -1489,19 +1489,44 @@ class FasterRCNNMetaArch(model.DetectionModel):
             image_shape,
             groundtruth_masks_list,
             proposal_boxlists,
-            groundtruth_classes_with_background_list,
             match_list,
             mask_height,
             mask_width)
 
+        batch_mask_predictions = tf.reshape(
+            mask_predictions, # TODO ensure layout is correct before
+            [batch_size, -1, num_classes, mask_height, mask_width])
 
-        reshaped_mask_predictions = tf.reshape(
-            mask_predictions, # TODO gather slices with with gt_inds
-            [batch_size, -1, num_classes * mask_height * mask_width])
+        mask_predictions_kth_class_list = []
+        for (groundtruth_classes_with_background,
+            match,
+            mask_predictions) in zip(
+              groundtruth_classes_with_background_list,
+              match_list,
+              tf.unstack(batch_mask_predictions)):
+          gt_inds_per_anchor = tf.maximum(match.match_results, 0)
+          gt_classes = tf.argmax(
+              groundtruth_classes_with_background[:, 1:],
+              axis=1)
+          gt_class_inds_per_anchor = tf.gather(gt_classes, gt_inds_per_anchor)
+          gather_inds = tf.stack(
+              [tf.range(self.max_num_proposals, dtype=tf.int64),
+               gt_class_inds_per_anchor],
+              axis=1)
+          mask_predictions_kth_class = tf.gather_nd(
+              mask_predictions, gather_inds)
+          mask_predictions_kth_class_list.append(mask_predictions_kth_class)
 
+        batch_mask_predictions_kth_class = tf.reshape(
+          tf.stack(mask_predictions_kth_class_list),
+          [batch_size, -1, mask_height * mask_width])
+
+        mask_loss_normalizer = normalizer * tf.cast(
+            mask_height * mask_width, tf.float32)  
         second_stage_mask_losses = self._second_stage_mask_loss(
-            reshaped_mask_predictions,
-            batch_mask_targets, weights=batch_mask_weights) / normalizer
+            batch_mask_predictions_kth_class,
+            batch_mask_targets, weights=batch_mask_weights
+            ) / mask_loss_normalizer
         second_stage_mask_loss = tf.reduce_sum(
             tf.boolean_mask(second_stage_mask_losses, paddings_indicator))
 
