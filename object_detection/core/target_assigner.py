@@ -447,3 +447,89 @@ def batch_assign_targets(target_assigner,
   batch_reg_weights = tf.stack(reg_weights_list)
   return (batch_cls_targets, batch_cls_weights, batch_reg_targets,
           batch_reg_weights, match_list)
+
+
+def batch_assign_mask_targets(image_shape,
+                              groundtruth_masks_list,
+                              proposal_boxlists,
+                              groundtruth_classes_with_background_list,
+                              match_list,
+                              mask_height,
+                              mask_width):
+  """Batched assignment of mask targets.
+
+  Args:
+    image_shape: a 1-D tensor of shape [4] representing the input
+      image shape.
+    proposal_boxlists: a list of BoxLists, each containing a tensor of shape
+      [self.max_num_proposals, 4] which represents decoded
+      proposal bounding boxes.
+    groundtruth_boxlists: a list of BoxLists containing coordinates of the
+      groundtruth boxes.
+    groundtruth_classes_with_background_list: a list of 2-D one-hot
+      (or k-hot) tensors of shape [num_boxes, num_classes + 1] containing the
+      class targets with the 0th index assumed to map to the background class.
+    groundtruth_masks_list: a list of 2-D tf.bool tensors of
+      shape [num_boxes, height_in, width_in] containing instance
+      masks with values in {0, 1}.
+    match_list: a list of matcher.Match objects encoding the match between
+      anchors and groundtruth boxes for each image of the batch,
+      with rows of the Match objects corresponding to groundtruth boxes
+      and columns corresponding to anchors.
+    mask_height: a 0-D integer tensor representing the predicted mask height.
+    mask_width: a 0-D integer tensor representing the predicted mask width.
+
+  Returns:
+    batch_mask_targets: a tensor of shape [batch_size, num_anchors,
+      mask_height * mask_width * num_classes].
+    batch_mask_weights: a tensor of shape [batch_size, num_anchors].
+  """
+  mask_targets_list = []
+  mask_weights_list = []
+  for (groundtruth_masks, match, proposal_boxlist,
+      groundtruth_classes_with_background) in zip(
+          groundtruth_masks_list, match_list, proposal_boxlists,
+          groundtruth_classes_with_background_list):
+
+    groundtruth_masks = tf.cast(
+        tf.expand_dims(groundtruth_masks, axis=3),
+        tf.float32)
+
+    # We crop some arbitrary mask for unmatched examples, but
+    # disable their influence in the loss with batch_reg_weights.
+    gt_inds_per_anchor = tf.maximum(match.match_results, 0)
+    gt_classes_per_anchor = tf.gather(
+        groundtruth_classes_with_background[:, 1:],
+        gt_inds_per_anchor)
+    num_classes = tf.shape(gt_classes_per_anchor)[1]
+
+    proposal_boxes_normalized = box_list_ops.to_normalized_coordinates(
+        proposal_boxlist,
+        image_shape[1], image_shape[2], check_range=False).get()
+
+    mask_crops = tf.image.crop_and_resize(
+        image=groundtruth_masks,
+        boxes=proposal_boxes_normalized,
+        box_ind=gt_inds_per_anchor,
+        crop_size=[mask_height, mask_width])
+
+    mask_crops_tiled = tf.tile(
+        tf.transpose(mask_crops, [1, 2, 0, 3]),
+        [1, 1, 1, num_classes])
+    mask_targets_per_class = tf.transpose(
+        mask_crops_tiled * gt_classes_per_anchor,
+        [2, 0, 1, 3])
+
+    mask_targets = tf.reshape(
+        mask_targets_per_class,
+        [-1,  mask_height * mask_width * num_classes])
+    mask_weights = tf.cast(match.matched_column_indicator(), tf.float32)
+
+    mask_targets_list.append(mask_targets)
+    mask_weights_list.append(mask_weights)
+
+  batch_mask_targets = tf.stack(mask_targets_list)
+  batch_mask_weights = tf.stack(mask_weights_list) / tf.cast(
+      mask_height * mask_width, tf.float32)
+
+  return batch_mask_targets, batch_mask_weights

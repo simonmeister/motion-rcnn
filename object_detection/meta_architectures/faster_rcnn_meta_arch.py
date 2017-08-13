@@ -1462,7 +1462,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
       second_stage_cls_loss = tf.reduce_sum(
           tf.boolean_mask(second_stage_cls_losses, paddings_indicator))
 
-      if self._hard_example_miner: # TODO disable for now if masks are used
+      if self._hard_example_miner:
+        if mask_predictions is not None:
+          raise RuntimeError('Hard example miner not yet adapted to mask prediction.')
         (second_stage_loc_loss, second_stage_cls_loss
         ) = self._unpad_proposals_and_apply_hard_mining(
             proposal_boxlists, second_stage_loc_losses,
@@ -1479,52 +1481,27 @@ class FasterRCNNMetaArch(model.DetectionModel):
         if groundtruth_masks_list is None:
           raise RuntimeError('No groundtruth masks provided.')
 
-        num_classes, mask_height, mask_width = tf.unstack(tf.shape(mask_predictions))[1:]
+        num_classes, mask_height, mask_width = tf.unstack(
+            tf.shape(mask_predictions))[1:]
 
-        mask_targets_list = []
-        for (groundtruth_masks, match, proposal_boxlist,
-            groundtruth_classes_with_background) in zip(
-                groundtruth_masks_list, match_list, proposal_boxlists,
-                groundtruth_classes_with_background_list):
-          groundtruth_masks = tf.cast(
-              tf.expand_dims(groundtruth_masks, axis=3),
-              tf.float32)
-          # We crop some arbitrary mask for unmatched examples, but
-          # disable their influence in the loss with batch_reg_weights.
-          gt_inds_per_anchor = tf.maximum(match.match_results, 0)
-          proposal_boxes_normalized = box_list_ops.to_normalized_coordinates(
-              proposal_boxlist,
-              image_shape[1], image_shape[2], check_range=False).get()
-          mask_crops = tf.image.crop_and_resize(
-              image=groundtruth_masks,
-              boxes=proposal_boxes_normalized,
-              box_ind=gt_inds_per_anchor,
-              crop_size=[mask_height, mask_width])
-          mask_crops_tiled = tf.tile(
-              tf.transpose(mask_crops, [1, 2, 0, 3]),
-              [1, 1, 1, num_classes])
-          gt_classes_per_anchor = tf.gather(
-              groundtruth_classes_with_background[:, 1:],
-              gt_inds_per_anchor)
-          mask_targets_per_class = tf.transpose(
-              mask_crops_tiled * gt_classes_per_anchor,
-              [2, 0, 1, 3])
-          mask_targets = tf.reshape(
-              mask_targets_per_class,
-              [-1,  mask_height * mask_width * num_classes])
-          mask_targets_list.append(mask_targets)
-        batch_mask_targets = tf.stack(mask_targets_list)
+        (batch_mask_targets, batch_mask_weights
+         ) = target_assigner.batch_assign_mask_targets(
+            image_shape,
+            groundtruth_masks_list,
+            proposal_boxlists,
+            groundtruth_classes_with_background_list,
+            match_list,
+            mask_height,
+            mask_width)
+
 
         reshaped_mask_predictions = tf.reshape(
-            mask_predictions,
+            mask_predictions, # TODO gather slices with with gt_inds
             [batch_size, -1, num_classes * mask_height * mask_width])
 
-        batch_mask_weights = batch_reg_weights / tf.cast(
-            mask_height * mask_width, tf.float32)
         second_stage_mask_losses = self._second_stage_mask_loss(
             reshaped_mask_predictions,
-            batch_mask_targets,
-            weights=batch_mask_weights) / normalizer
+            batch_mask_targets, weights=batch_mask_weights) / normalizer
         second_stage_mask_loss = tf.reduce_sum(
             tf.boolean_mask(second_stage_mask_losses, paddings_indicator))
 
