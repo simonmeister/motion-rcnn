@@ -207,7 +207,7 @@ class DetectionModel(object):
       groundtruth_classes_list: a list of 2-D tf.float32 one-hot (or k-hot)
         tensors of shape [num_boxes, num_classes] containing the class targets
         with the 0th index assumed to map to the first non-background class.
-      groundtruth_masks_list: a list of 2-D tf.float32 tensors of
+      groundtruth_masks_list: a list of 2-D tf.bool tensors of
         shape [max_detections, height_in, width_in] containing instance
         masks with values in {0, 1}.  If None, no masks are provided.
         Mask resolution `height_in`x`width_in` must agree with the resolution

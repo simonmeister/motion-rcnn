@@ -131,8 +131,9 @@ def _create_losses(input_queue, create_model_fn):
   prediction_dict = detection_model.predict(images)
 
   losses_dict = detection_model.loss(prediction_dict)
-  for loss_tensor in losses_dict.values():
-    tf.losses.add_loss(loss_tensor)
+  for loss_key, loss_tensor in losses_dict.items():
+    loss_name = 'Losses/' + loss_key
+    tf.losses.add_loss(tf.identity(loss_tensor, name=loss_name))
 
 
 def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,

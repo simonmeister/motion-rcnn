@@ -214,7 +214,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
                second_stage_score_conversion_fn,
                second_stage_localization_loss_weight,
                second_stage_classification_loss_weight,
-               second_stage_mask_loss_weight=None,
+               second_stage_mask_loss_weight,
                hard_example_miner,
                parallel_iterations=16):
     """FasterRCNNMetaArch Constructor.
@@ -630,7 +630,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
     }
 
     if box_predictor.MASK_PREDICTIONS in box_predictions:
-      mask_predictions = box_predictions[box_predictor.MASK_PREDICTIONS]
+      mask_predictions = tf.squeeze(
+          box_predictions[box_predictor.MASK_PREDICTIONS], axis=1)
       prediction_dict['mask_predictions'] = mask_predictions
 
     return prediction_dict
@@ -1019,7 +1020,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
       groundtruth_classes_with_background_list: A list of 2-D one-hot
         (or k-hot) tensors of shape [num_boxes, num_classes+1] containing the
         class targets with the 0th index assumed to map to the background class.
-      groundtruth_masks_list: a list of 2-D tf.float32 tensors of
+      groundtruth_masks_list: a list of 2-D tf.bool tensors of
         shape [num_boxes, height_in, width_in] containing instance
         masks with values in {0, 1}. Will be None if no masks are provided.
     """
@@ -1263,8 +1264,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
         corresponding loss values.
     """
     with tf.name_scope(scope, 'Loss', prediction_dict.values()):
-      (groundtruth_boxlists, groundtruth_classes_with_background_list, groundtruth_masks_list
-      ) = self._format_groundtruth_data(prediction_dict['image_shape'])
+      (groundtruth_boxlists, groundtruth_classes_with_background_list,
+       groundtruth_masks_list
+       ) = self._format_groundtruth_data(prediction_dict['image_shape'])
       loss_dict = self._loss_rpn(
           prediction_dict['rpn_box_encodings'],
           prediction_dict['rpn_objectness_predictions_with_background'],
@@ -1398,6 +1400,13 @@ class FasterRCNNMetaArch(model.DetectionModel):
       groundtruth_classes_with_background_list: a list of 2-D one-hot
         (or k-hot) tensors of shape [num_boxes, num_classes + 1] containing the
         class targets with the 0th index assumed to map to the background class.
+      mask_predictions: (optional) a 4-D tensor with shape
+        [total_num_padded_proposals, num_classes, mask_height, mask_width]
+        containing instance mask predictions.
+      groundtruth_masks_list: (optional) a list of 2-D tf.bool tensors of
+        shape [num_boxes, height_in, width_in] containing instance
+        masks with values in {0, 1}. Must be provided if mask_predictions is
+        not None.
 
     Returns:
       a dictionary mapping loss keys ('second_stage_localization_loss',
@@ -1417,9 +1426,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
       normalizer = tf.tile(num_proposals_or_one,
                            [1, self.max_num_proposals]) * batch_size
 
-      # TODO extend batch_assign_targets to return mask targets
       (batch_cls_targets_with_background, batch_cls_weights, batch_reg_targets,
-       batch_reg_weights, _) = target_assigner.batch_assign_targets(
+       batch_reg_weights, match_list) = target_assigner.batch_assign_targets(
            self._detector_target_assigner, proposal_boxlists,
            groundtruth_boxlists, groundtruth_classes_with_background_list)
 
@@ -1450,12 +1458,12 @@ class FasterRCNNMetaArch(model.DetectionModel):
       second_stage_cls_loss = tf.reduce_sum(
           tf.boolean_mask(second_stage_cls_losses, paddings_indicator))
 
-      if self._hard_example_miner: # TODO masks?!
+      if self._hard_example_miner: # TODO disable for now if masks are used
         (second_stage_loc_loss, second_stage_cls_loss
         ) = self._unpad_proposals_and_apply_hard_mining(
             proposal_boxlists, second_stage_loc_losses,
             second_stage_cls_losses, num_proposals)
-      # TODO add mask loss, (also compute it with _second_stage_mask_loss)
+
       loss_dict = {
           'second_stage_localization_loss':
           (self._second_stage_loc_loss_weight * second_stage_loc_loss),
@@ -1464,9 +1472,52 @@ class FasterRCNNMetaArch(model.DetectionModel):
       }
 
       if mask_predictions is not None:
+        num_classes, mask_height, mask_width = tf.unstack(tf.shape(mask_predictions))[1:]
+
+        mask_targets_list = []
+        for groundtruth_masks, match, proposal_boxlist, groundtruth_classes_with_background in zip(
+            groundtruth_masks_list, match_list, proposal_boxlists,
+            groundtruth_classes_with_background_list):
+          groundtruth_masks = tf.cast(
+              tf.expand_dims(groundtruth_masks, axis=3),
+              tf.float32)
+          gt_inds_per_anchor = tf.maximum(match.match_results, 0)
+          gt_classes_per_anchor = tf.gather(
+              groundtruth_classes_with_background[:, :-1],
+              gt_inds_per_anchor)
+          mask_crops = tf.image.crop_and_resize(
+              image=groundtruth_masks,
+              boxes=proposal_boxlist.get(),
+              box_ind=gt_inds_per_anchor,
+              crop_size=[mask_height, mask_width])
+          mask_crops_tiled = tf.tile(
+              tf.transpose(mask_crops, [1, 2, 0, 3]),
+              [1, 1, 1, num_classes])
+          mask_targets_per_class = tf.transpose(
+              mask_crops_tiled * gt_classes_per_anchor,
+              [2, 0, 1, 3])
+          mask_targets = tf.reshape(
+              mask_targets_per_class,
+              [-1,  mask_height * mask_width * num_classes])
+          mask_targets_list.append(mask_targets)
+        batch_mask_targets = tf.stack(mask_targets_list)
+
+        reshaped_mask_predictions = tf.reshape(
+            mask_predictions,
+            [batch_size, -1, num_classes * mask_height * mask_width])
+
         if groundtruth_masks_list is None:
           raise RuntimeError('No groundtruth masks provided.')
-        second_stage_mask_loss = ... # TODO
+
+        batch_mask_weights = batch_reg_weights / (
+            tf.cast(mask_height * mask_width, tf.float32))
+        second_stage_mask_losses = self._second_stage_mask_loss(
+            reshaped_mask_predictions,
+            batch_mask_targets,
+            weights=batch_mask_weights) / normalizer
+        second_stage_mask_loss = tf.reduce_sum(
+            tf.boolean_mask(second_stage_mask_losses, paddings_indicator))
+
         loss_dict.update({
             'second_stage_mask_loss':
             (self._second_stage_mask_loss_weight * second_stage_mask_loss)

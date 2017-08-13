@@ -44,6 +44,7 @@ Example usage:
 import functools
 import json
 import os
+import shutil
 import tensorflow as tf
 
 from google.protobuf import text_format
@@ -86,6 +87,8 @@ flags.DEFINE_string('model_config_path', '',
                     'Path to a model_pb2.DetectionModel config file.')
 flags.DEFINE_string('gpu', '',
                     'Specify GPU id or leave empty to train on CPU.')
+flags.DEFINE_boolean('clear', False,
+                     'Clear old data in train_dir and start from scratch.')
 
 FLAGS = flags.FLAGS
 
@@ -141,6 +144,9 @@ def get_configs_from_multiple_files():
 
 def main(_):
   os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
+  if FLAGS.clear:
+    if os.path.exists(FLAGS.train_dir):
+      shutil.rmtree(FLAGS.train_dir)
 
   assert FLAGS.train_dir, '`train_dir` is missing.'
   if FLAGS.pipeline_config_path:
