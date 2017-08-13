@@ -44,8 +44,9 @@ Example usage:
         --input_config_path=eval_input_config.pbtxt
 """
 import functools
-import tensorflow as tf
 import os
+import shutil
+import tensorflow as tf
 
 from google.protobuf import text_format
 from object_detection import evaluator
@@ -78,6 +79,8 @@ flags.DEFINE_string('model_config_path', '',
                     'Path to a model_pb2.DetectionModel config file.')
 flags.DEFINE_string('gpu', '',
                     'Specify GPU id or leave empty to eval on CPU.')
+flags.DEFINE_boolean('clear', False,
+                     'Clear old data in eval_dir.')
 
 FLAGS = flags.FLAGS
 
@@ -136,6 +139,9 @@ def get_configs_from_multiple_files():
 
 def main(unused_argv):
   os.environ['CUDA_VISIBLE_DEVICES'] = FLAGS.gpu
+  if FLAGS.clear:
+    if os.path.exists(FLAGS.eval_dir):
+      shutil.rmtree(FLAGS.eval_dir)
 
   assert FLAGS.checkpoint_dir, '`checkpoint_dir` is missing.'
   assert FLAGS.eval_dir, '`eval_dir` is missing.'

@@ -1276,6 +1276,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
       if not self._first_stage_only:
         loss_dict.update(
             self._loss_box_classifier(
+                prediction_dict['image_shape'],
                 prediction_dict['refined_box_encodings'],
                 prediction_dict['class_predictions_with_background'],
                 prediction_dict['proposal_boxes'],
@@ -1364,6 +1365,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     return loss_dict
 
   def _loss_box_classifier(self,
+                           image_shape,
                            refined_box_encodings,
                            class_predictions_with_background,
                            proposal_boxes,
@@ -1383,6 +1385,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
     actually zero (and thus should not be matched to).
 
     Args:
+      image_shape: a 1-D tensor of shape [4] representing the input
+        image shape.
       refined_box_encodings: a 3-D tensor with shape
         [total_num_proposals, num_classes, box_coder.code_size] representing
         predicted (final) refined box encodings.
@@ -1472,27 +1476,36 @@ class FasterRCNNMetaArch(model.DetectionModel):
       }
 
       if mask_predictions is not None:
+        if groundtruth_masks_list is None:
+          raise RuntimeError('No groundtruth masks provided.')
+
         num_classes, mask_height, mask_width = tf.unstack(tf.shape(mask_predictions))[1:]
 
         mask_targets_list = []
-        for groundtruth_masks, match, proposal_boxlist, groundtruth_classes_with_background in zip(
-            groundtruth_masks_list, match_list, proposal_boxlists,
-            groundtruth_classes_with_background_list):
+        for (groundtruth_masks, match, proposal_boxlist,
+            groundtruth_classes_with_background) in zip(
+                groundtruth_masks_list, match_list, proposal_boxlists,
+                groundtruth_classes_with_background_list):
           groundtruth_masks = tf.cast(
               tf.expand_dims(groundtruth_masks, axis=3),
               tf.float32)
+          # We crop some arbitrary mask for unmatched examples, but
+          # disable their influence in the loss with batch_reg_weights.
           gt_inds_per_anchor = tf.maximum(match.match_results, 0)
-          gt_classes_per_anchor = tf.gather(
-              groundtruth_classes_with_background[:, :-1],
-              gt_inds_per_anchor)
+          proposal_boxes_normalized = box_list_ops.to_normalized_coordinates(
+              proposal_boxlist,
+              image_shape[1], image_shape[2], check_range=False).get()
           mask_crops = tf.image.crop_and_resize(
               image=groundtruth_masks,
-              boxes=proposal_boxlist.get(),
+              boxes=proposal_boxes_normalized,
               box_ind=gt_inds_per_anchor,
               crop_size=[mask_height, mask_width])
           mask_crops_tiled = tf.tile(
               tf.transpose(mask_crops, [1, 2, 0, 3]),
               [1, 1, 1, num_classes])
+          gt_classes_per_anchor = tf.gather(
+              groundtruth_classes_with_background[:, 1:],
+              gt_inds_per_anchor)
           mask_targets_per_class = tf.transpose(
               mask_crops_tiled * gt_classes_per_anchor,
               [2, 0, 1, 3])
@@ -1506,11 +1519,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
             mask_predictions,
             [batch_size, -1, num_classes * mask_height * mask_width])
 
-        if groundtruth_masks_list is None:
-          raise RuntimeError('No groundtruth masks provided.')
-
-        batch_mask_weights = batch_reg_weights / (
-            tf.cast(mask_height * mask_width, tf.float32))
+        batch_mask_weights = batch_reg_weights / tf.cast(
+            mask_height * mask_width, tf.float32)
         second_stage_mask_losses = self._second_stage_mask_loss(
             reshaped_mask_predictions,
             batch_mask_targets,

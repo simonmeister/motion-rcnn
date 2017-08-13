@@ -8,6 +8,7 @@ from __future__ import absolute_import, division, print_function
 import sys
 import os
 import glob
+import shutil
 
 import numpy as np
 import PIL.Image as Image
@@ -40,6 +41,10 @@ with tf.Graph().as_default():
     sess.run(init_op)
 
     tf.train.start_queue_runners(sess=sess)
+    out_dir = 'output/tests/cityscapes/'
+    if os.path.isdir(out_dir):
+      shutil.rmtree(out_dir)
+    os.makedirs(out_dir)
     with sess.as_default():
         for i in range(30):
             example_np = sess.run(example)
@@ -84,8 +89,5 @@ with tf.Graph().as_default():
                 imd.rectangle([x0, y0, x1, y1], outline=color)
                 imd.text(((x0 + x1) / 2, y1), label.name, fill=color)
 
-            out_dir = 'output/tests/cityscapes/'
-            if not os.path.isdir(out_dir):
-                os.makedirs(out_dir)
             im.save(os.path.join(out_dir, str(img_id_np) + '.png'))
         sess.close()
