@@ -1494,7 +1494,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
             mask_width)
 
         batch_mask_predictions = tf.reshape(
-            mask_predictions, # TODO ensure layout is correct before
+            mask_predictions,
             [batch_size, -1, num_classes, mask_height, mask_width])
 
         mask_predictions_kth_class_list = []
@@ -1520,9 +1520,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
         batch_mask_predictions_kth_class = tf.reshape(
           tf.stack(mask_predictions_kth_class_list),
           [batch_size, -1, mask_height * mask_width])
-
         mask_loss_normalizer = normalizer * tf.cast(
-            mask_height * mask_width, tf.float32)  
+            mask_height * mask_width, tf.float32)
+
         second_stage_mask_losses = self._second_stage_mask_loss(
             batch_mask_predictions_kth_class,
             batch_mask_targets, weights=batch_mask_weights
