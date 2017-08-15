@@ -460,14 +460,12 @@ def batch_assign_mask_targets(image_shape,
   Args:
     image_shape: a 1-D tensor of shape [4] representing the input
       image shape.
-    proposal_boxlists: a list of BoxLists, each containing a tensor of shape
-      [self.max_num_proposals, 4] which represents decoded
-      proposal bounding boxes.
-    groundtruth_boxlists: a list of BoxLists containing coordinates of the
-      groundtruth boxes.
     groundtruth_masks_list: a list of 2-D tf.bool tensors of
       shape [num_boxes, height_in, width_in] containing instance
       masks with values in {0, 1}.
+    proposal_boxlists: a list of BoxLists, each containing a tensor of shape
+      [self.max_num_proposals, 4] which represents decoded
+      proposal bounding boxes.
     match_list: a list of matcher.Match objects encoding the match between
       anchors and groundtruth boxes for each image of the batch,
       with rows of the Match objects corresponding to groundtruth boxes
@@ -502,6 +500,7 @@ def batch_assign_mask_targets(image_shape,
         boxes=proposal_boxes_normalized,
         box_ind=gt_inds_per_anchor,
         crop_size=[mask_height, mask_width])
+    mask_crops = tf.to_float(tf.greater(mask_crops, 0.5))
 
     mask_targets = tf.reshape(mask_crops, [-1, mask_height * mask_width])
     mask_weights = tf.cast(match.matched_column_indicator(), tf.float32)
