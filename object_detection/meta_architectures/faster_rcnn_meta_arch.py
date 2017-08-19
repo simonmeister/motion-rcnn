@@ -79,6 +79,7 @@ from object_detection.core import model
 from object_detection.core import post_processing
 from object_detection.core import standard_fields as fields
 from object_detection.core import target_assigner
+from object_detection.core import level_assigner
 from object_detection.utils import ops
 from object_detection.utils import shape_utils
 
@@ -558,7 +559,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     """Predicts the output tensors from second stage of Faster R-CNN.
 
     Args:
-      rpn_box_encodings: 4-D float tensor of shape
+      rpn_box_encodings: 4-D float tensors of shape
         [batch_size, num_valid_anchors, self._box_coder.code_size] containing
         predicted boxes.
       rpn_objectness_predictions_with_background: 2-D float tensor of shape
@@ -662,10 +663,16 @@ class FasterRCNNMetaArch(model.DetectionModel):
     rpn_features_to_crop = self._feature_extractor.extract_proposal_features(
         preprocessed_inputs, scope=self.first_stage_feature_extractor_scope)
 
-    feature_map_shape = tf.shape(rpn_features_to_crop)
-    anchors = self._first_stage_anchor_generator.generate(
-        [(feature_map_shape[1], feature_map_shape[2])])
+    if not isinstance(rpn_features_to_crop, list):
+      rpn_features_to_crop = [rpn_features_to_crop]
+    feature_map_sizes = []
+    for feature_map in rpn_features_to_crop:
+      feature_map_shape = tf.shape(feature_map)
+      feature_map_sizes.append((feature_map_shape[1], feature_map_shape[2]))
+    anchors = self._first_stage_anchor_generator.generate(feature_map_sizes)
+
     with slim.arg_scope(self._first_stage_box_predictor_arg_scope):
+      # TODO for each feature map
       kernel_size = self._first_stage_box_predictor_kernel_size
       rpn_box_predictor_features = slim.conv2d(
           rpn_features_to_crop,
@@ -702,17 +709,25 @@ class FasterRCNNMetaArch(model.DetectionModel):
     """
     num_anchors_per_location = (
         self._first_stage_anchor_generator.num_anchors_per_location())
-    if len(num_anchors_per_location) != 1:
+    if len(num_anchors_per_location) != len(rpn_box_predictor_features):
       raise RuntimeError('anchor_generator is expected to generate anchors '
-                         'corresponding to a single feature map.')
-    box_predictions = self._first_stage_box_predictor.predict(
-        rpn_box_predictor_features,
-        num_anchors_per_location[0],
-        scope=self.first_stage_box_predictor_scope)
+                         'corresponding to a each feature map.')
 
-    box_encodings = box_predictions[box_predictor.BOX_ENCODINGS]
-    objectness_predictions_with_background = box_predictions[
-        box_predictor.CLASS_PREDICTIONS_WITH_BACKGROUND]
+    box_encodings_list = []
+    objectness_predictions_with_background_list = []
+    for i, feature_map in enumerate(rpn_box_predictor_features):
+      box_predictions = self._first_stage_box_predictor.predict(
+          feature_map,
+          num_anchors_per_location[i],
+          scope=self.first_stage_box_predictor_scope)
+      box_encodings_list.append(
+          box_predictions[box_predictor.BOX_ENCODINGS])
+      objectness_predictions_with_background_list.append(
+          box_predictions[box_predictor.CLASS_PREDICTIONS_WITH_BACKGROUND])
+    box_encodings = tf.concat(box_encodings_list, axis=1)
+    objectness_predictions_with_background = tf.concat(
+        objectness_predictions_with_background_list, axis=1)
+
     return (tf.squeeze(box_encodings, axis=2),
             objectness_predictions_with_background)
 
@@ -1077,14 +1092,14 @@ class FasterRCNNMetaArch(model.DetectionModel):
 
   def _compute_second_stage_input_feature_maps(self, features_to_crop,
                                                proposal_boxes_normalized):
-    """Crops to a set of proposals from the feature map for a batch of images.
+    """Crops to a set of proposals from the feature maps for a batch of images.
 
     Helper function for self._postprocess_rpn. This function calls
     `tf.image.crop_and_resize` to create the feature map to be passed to the
     second stage box classifier for each proposal.
 
     Args:
-      features_to_crop: A float32 tensor with shape
+      features_to_crop: A list of float32 tensors with shape
         [batch_size, height, width, depth]
       proposal_boxes_normalized: A float32 tensor with shape [batch_size,
         num_proposals, box_code_size] containing proposal boxes in
@@ -1102,15 +1117,50 @@ class FasterRCNNMetaArch(model.DetectionModel):
           tf.range(start=0, limit=proposals_shape[0]), 1)
       return tf.reshape(ones_mat * multiplier, [-1])
 
-    cropped_regions = tf.image.crop_and_resize(
-        features_to_crop,
-        self._flatten_first_two_dimensions(proposal_boxes_normalized),
-        get_box_inds(proposal_boxes_normalized),
-        (self._initial_crop_size, self._initial_crop_size))
-    return slim.max_pool2d(
-        cropped_regions,
-        [self._maxpool_kernel_size, self._maxpool_kernel_size],
-        stride=self._maxpool_stride)
+    if len(features_to_crop) == 1:
+      features_to_crop = features_to_crop[0]
+      cropped_regions = tf.image.crop_and_resize(
+          features_to_crop,
+          self._flatten_first_two_dimensions(proposal_boxes_normalized),
+          get_box_inds(proposal_boxes_normalized),
+          (self._initial_crop_size, self._initial_crop_size))
+      return slim.max_pool2d(
+          cropped_regions,
+          [self._maxpool_kernel_size, self._maxpool_kernel_size],
+          stride=self._maxpool_stride)
+    else:
+      level_assignments = level_assigner._assign_to_levels(
+          flattened_proposal_boxes_normalized,
+          ) # TODO get image_shape
+
+      cropped_regions_list = []
+      gathered_indices_list = []
+      for i, feature_map in enumerate(features_to_crop):
+        gathered_indices = tf.where(tf.equal(level_assignments, i))
+        gathered_boxes = tf.gather_nd(proposal_boxes_normalized,
+                                      gathered_indices)
+        flattened_gathered_boxes = self._flatten_first_two_dimensions(
+            gathered_boxes)
+        cropped_regions = tf.image.crop_and_resize(
+            feature_map,
+            flattened_gathered_boxes,
+            get_box_inds(gathered_boxes),
+            (self._initial_crop_size, self._initial_crop_size))
+        cropped_regions_list.append(cropped_regions)
+        gathered_indices_list.append(gathered_indices)
+
+      flattened_cropped_regions = tf.concat(
+          cropped_regions_list, axis=0)
+      gathered_indices = tf.to_int32(
+          tf.concat(gathered_indices_list, axis=0))
+      flattened_gathered_indices = self._flatten_first_two_dimensions(
+          num_anchors * gathered_indices[:, 0] + gathered_indices[:, 1]) # TODO num_anchors
+
+      num_crops = num_anchors * num_batch #TODO self.max_num_proposals??
+      return tf.scatter_nd(
+          tf.expand_dims(flattened_gathered_indices, axis=1),
+          flattened_cropped_regions,
+          tf.stack([num_crops, 14, 14, 256]))
 
   def _postprocess_box_classifier(self,
                                   refined_box_encodings,
