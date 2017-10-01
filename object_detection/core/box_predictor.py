@@ -250,7 +250,7 @@ class RfcnBoxPredictor(BoxPredictor):
             CLASS_PREDICTIONS_WITH_BACKGROUND:
             class_predictions_with_background}
 
-# TODO do actual pred inside new mask_rcnn_head class
+
 class MaskRCNNBoxPredictor(BoxPredictor):
   """Mask R-CNN Box Predictor.
 

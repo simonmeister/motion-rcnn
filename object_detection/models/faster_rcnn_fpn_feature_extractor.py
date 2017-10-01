@@ -42,6 +42,7 @@ class FasterRCNNResnetV1FeatureExtractor(
                resnet_model,
                is_training,
                first_stage_features_stride,
+               handles_map,
                reuse_weights=None,
                weight_decay=0.0):
     """Constructor.
@@ -91,7 +92,7 @@ class FasterRCNNResnetV1FeatureExtractor(
       scope: A scope name.
 
     Returns:
-      rpn_feature_map: A tensor with shape [batch, height, width, depth]
+      rpn_features: A list of tensors with shape [batch, height, width, depth]
     Raises:
       InvalidArgumentError: If the spatial size of `preprocessed_inputs`
         (height or width) is less than 33.
@@ -125,8 +126,7 @@ class FasterRCNNResnetV1FeatureExtractor(
               spatial_squeeze=False,
               scope=var_scope)
 
-    handle = scope + '/%s/block3' % self._architecture
-    return activations[handle]
+    return self._build_pyramid(activations, handles_map)
 
   def _extract_box_classifier_features(self, proposal_feature_maps, scope):
     """Extracts second stage box classifier features.
@@ -143,6 +143,30 @@ class FasterRCNNResnetV1FeatureExtractor(
         representing box classifier features for each proposal.
     """
     return proposal_feature_maps
+
+  def _build_pyramid(self, end_points, handles_map):
+    pyramid = []
+    with tf.variable_scope('pyramid'):
+        C5 = end_points[handles_map['C5']]
+        P5 = slim.conv2d(C5, 256, [1, 1], stride=1, scope='P5')
+        P6 = P5[:, :2:, :2:, :]
+        pyramid = [P6, P5]
+
+        for c in range(4, 1, -1):
+            this_C = end_points[handles_map['C{}'.format(c)]]
+            prev_P = pyramid[-1]
+
+            up_shape = tf.shape(this_C)
+            prev_P_up = tf.image.resize_bilinear(prev_P, [up_shape[1], up_shape[2]],
+                                                 name='C{}/upscale'.format(c))
+            this_C_adapted = slim.conv2d(this_C, 256, [1,1], stride=1,
+                                         scope='C{}'.format(c))
+
+            this_P = tf.add(prev_P_up, this_C_adapted, name='C{}/add'.format(c))
+            this_P = slim.conv2d(this_P, 256, [3,3], stride=1, scope='C{}/refine'.format(c))
+            pyramid.append(this_P)
+    pyramid = pyramid[::-1]
+    return pyramid
 
 
 class FasterRCNNResnet50FeatureExtractor(FasterRCNNResnetV1FeatureExtractor):
@@ -165,56 +189,11 @@ class FasterRCNNResnet50FeatureExtractor(FasterRCNNResnetV1FeatureExtractor):
       ValueError: If `first_stage_features_stride` is not 8 or 16,
         or if `architecture` is not supported.
     """
+    handles_map = {
+        'C2': 'resnet_v1_50/block1/unit_2/bottleneck_v1',
+        'C3': 'resnet_v1_50/block2/unit_3/bottleneck_v1',
+        'C4': 'resnet_v1_50/block3/unit_5/bottleneck_v1',
+        'C5': 'resnet_v1_50/block4/unit_3/bottleneck_v1'}
     super(FasterRCNNResnet50FeatureExtractor, self).__init__(
         'resnet_v1_50', resnet_v1.resnet_v1_50, is_training,
-        first_stage_features_stride, reuse_weights, weight_decay)
-
-
-class FasterRCNNResnet101FeatureExtractor(FasterRCNNResnetV1FeatureExtractor):
-  """Faster R-CNN Resnet 101 feature extractor implementation."""
-
-  def __init__(self,
-               is_training,
-               first_stage_features_stride,
-               reuse_weights=None,
-               weight_decay=0.0):
-    """Constructor.
-
-    Args:
-      is_training: See base class.
-      first_stage_features_stride: See base class.
-      reuse_weights: See base class.
-      weight_decay: See base class.
-
-    Raises:
-      ValueError: If `first_stage_features_stride` is not 8 or 16,
-        or if `architecture` is not supported.
-    """
-    super(FasterRCNNResnet101FeatureExtractor, self).__init__(
-        'resnet_v1_101', resnet_v1.resnet_v1_101, is_training,
-        first_stage_features_stride, reuse_weights, weight_decay)
-
-
-class FasterRCNNResnet152FeatureExtractor(FasterRCNNResnetV1FeatureExtractor):
-  """Faster R-CNN Resnet 152 feature extractor implementation."""
-
-  def __init__(self,
-               is_training,
-               first_stage_features_stride,
-               reuse_weights=None,
-               weight_decay=0.0):
-    """Constructor.
-
-    Args:
-      is_training: See base class.
-      first_stage_features_stride: See base class.
-      reuse_weights: See base class.
-      weight_decay: See base class.
-
-    Raises:
-      ValueError: If `first_stage_features_stride` is not 8 or 16,
-        or if `architecture` is not supported.
-    """
-    super(FasterRCNNResnet152FeatureExtractor, self).__init__(
-        'resnet_v1_152', resnet_v1.resnet_v1_152, is_training,
-        first_stage_features_stride, reuse_weights, weight_decay)
+        first_stage_features_stride, handles_map, reuse_weights, weight_decay)
