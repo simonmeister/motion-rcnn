@@ -508,7 +508,7 @@ def batch_assign_mask_targets(image_shape,
       mask_crops = np.zeros((len(np_inds), height, width), dtype=np.float32)
       for i in range(len(np_inds)):
         roi = np_proposals[i, :]
-        crop = np_masks[np_inds[i], int(roi[0]):int(roi[2]), int(roi[1]):int(roi[3])]
+        crop = np_masks[np_inds[i], int(roi[0]):int(roi[2])+1, int(roi[1]):int(roi[3])+1]
         crop = cv2.resize(crop, (width, height), interpolation=cv2.INTER_NEAREST)
         mask_crops[i, :, :] = crop
       return mask_crops
