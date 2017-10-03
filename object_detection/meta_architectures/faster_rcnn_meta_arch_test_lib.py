@@ -178,6 +178,7 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
     second_stage_score_conversion_fn = tf.identity
     second_stage_localization_loss_weight = 1.0
     second_stage_classification_loss_weight = 1.0
+    second_stage_mask_loss_weight = 1.0
 
     hard_example_miner = None
     if hard_mining:
@@ -221,6 +222,8 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
         second_stage_localization_loss_weight,
         'second_stage_classification_loss_weight':
         second_stage_classification_loss_weight,
+        'second_stage_mask_loss_weight':
+        second_stage_mask_loss_weight,
         'hard_example_miner': hard_example_miner}
 
     return self._get_model(self._get_second_stage_box_predictor(
@@ -702,11 +705,44 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
          [10, -10, -10],
          [-10, 10, -10]], dtype=tf.float32)
 
+    mask1 = np.zeros([16, 16]) - 10
+    mask2 = np.zeros([16, 16]) - 10
+    mask3 = np.zeros([16, 16]) - 10
+    mask4 = np.zeros([16, 16]) - 10
+    rand = (np.random.random([16, 16]) - 0.5) * 10
+    mask1[0:12, 0:12] = 10
+    mask2[0:8, 0:16] = 10
+    mask3[0:16, 0:12] = 10
+    mask4[8:12, 8:12] = 10
+    mask_predictions = tf.constant(np.array(
+      [[mask1, rand], # first image
+       [rand, rand],
+       [rand, rand],
+       [rand, mask4],
+       [mask1, rand],
+       [rand, rand],
+       [rand, rand], # second image
+       [mask2, rand],
+       [mask3, rand],
+       [rand, rand],
+       [rand, rand],
+       [mask2, rand]]), dtype=tf.float32)
+
     groundtruth_boxes_list = [
         tf.constant([[0, 0, .5, .5], [.5, .5, 1, 1]], dtype=tf.float32),
         tf.constant([[0, .5, .5, 1], [.5, 0, 1, .5]], dtype=tf.float32)]
     groundtruth_classes_list = [tf.constant([[1, 0], [0, 1]], dtype=tf.float32),
                                 tf.constant([[1, 0], [1, 0]], dtype=tf.float32)]
+    im1_mask1 = np.zeros([32, 32])
+    im1_mask2 = np.zeros([32, 32])
+    im2_mask1 = np.zeros([32, 32])
+    im2_mask2 = np.zeros([32, 32])
+    im1_mask1[0:16, 0:16] = np.float32(mask1 > 0)
+    im1_mask2[16:32, 16:32] = np.float32(mask4 > 0)
+    im2_mask1[0:16, 16:32] = np.float32(mask2 > 0)
+    im2_mask2[16:32, 0:16] = np.float32(mask3 > 0)
+    groundtruth_masks_list = [tf.constant(np.array([im1_mask1, im1_mask2]), dtype=tf.bool),
+                              tf.constant(np.array([im2_mask1, im2_mask2]), dtype=tf.bool)]
 
     prediction_dict = {
         'rpn_box_encodings': rpn_box_encodings,
@@ -717,10 +753,12 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
         'refined_box_encodings': refined_box_encodings,
         'class_predictions_with_background': class_predictions_with_background,
         'proposal_boxes': proposal_boxes,
-        'num_proposals': num_proposals
+        'num_proposals': num_proposals,
+        'mask_predictions': mask_predictions
     }
     model.provide_groundtruth(groundtruth_boxes_list,
-                              groundtruth_classes_list)
+                              groundtruth_classes_list,
+                              groundtruth_masks_list)
     loss_dict = model.loss(prediction_dict)
 
     with self.test_session() as sess:
@@ -729,6 +767,7 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
       self.assertAllClose(loss_dict_out['first_stage_objectness_loss'], 0)
       self.assertAllClose(loss_dict_out['second_stage_localization_loss'], 0)
       self.assertAllClose(loss_dict_out['second_stage_classification_loss'], 0)
+      self.assertAllClose(loss_dict_out['second_stage_mask_loss'], 0)
 
   def test_loss_full_zero_padded_proposals(self):
     model = self._build_model(
