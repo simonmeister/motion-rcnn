@@ -705,15 +705,15 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
          [10, -10, -10],
          [-10, 10, -10]], dtype=tf.float32)
 
-    mask1 = np.zeros([16, 16]) - 10
-    mask2 = np.zeros([16, 16]) - 10
-    mask3 = np.zeros([16, 16]) - 10
-    mask4 = np.zeros([16, 16]) - 10
+    mask1 = np.zeros([16, 16]) - 20
+    mask2 = np.zeros([16, 16]) - 20
+    mask3 = np.zeros([16, 16]) - 20
+    mask4 = np.zeros([16, 16]) - 20
     rand = (np.random.random([16, 16]) - 0.5) * 10
-    mask1[0:12, 0:12] = 10
-    mask2[0:8, 0:16] = 10
-    mask3[0:16, 0:12] = 10
-    mask4[8:12, 8:12] = 10
+    mask1[2:12, 2:12] = 20
+    mask2[2:8, 2:14] = 20
+    mask3[2:14, 2:12] = 20
+    mask4[8:12, 8:12] = 20
     mask_predictions = tf.constant(np.array(
       [[mask1, rand], # first image
        [rand, rand],
