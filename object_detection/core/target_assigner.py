@@ -448,6 +448,8 @@ def batch_assign_targets(target_assigner,
   return (batch_cls_targets, batch_cls_weights, batch_reg_targets,
           batch_reg_weights, match_list)
 
+import numpy as np
+import cv2
 
 def batch_assign_mask_targets(image_shape,
                               groundtruth_masks_list,
@@ -501,6 +503,21 @@ def batch_assign_mask_targets(image_shape,
         box_ind=gt_inds_per_anchor,
         crop_size=[mask_height, mask_width])
     mask_crops = tf.to_float(tf.greater(mask_crops, 0.5))
+
+    def py_crop(np_masks, np_proposals, np_inds, height, width):
+      mask_crops = np.zeros((len(np_inds), height, width), dtype=np.float32)
+      for i in range(len(np_inds)):
+        roi = np_proposals[i, :]
+        crop = np_masks[np_inds[i], int(roi[0]):int(roi[2])+1, int(roi[1]):int(roi[3])+1]
+        crop = cv2.resize(crop, (width, height), interpolation=cv2.INTER_NEAREST)
+        mask_crops[i, :, :] = crop
+      return mask_crops
+
+    #mask_crops = tf.py_func(
+    #  py_crop,
+    #  [groundtruth_masks, proposal_boxlist.get(), gt_inds_per_anchor, mask_height, mask_width],
+    #  [tf.float32])
+    #mask_crops = tf.convert_to_tensor(tf.cast(mask_crops, tf.float32), name='mask_crops')
 
     mask_targets = tf.reshape(mask_crops, [-1, mask_height * mask_width])
     mask_weights = tf.cast(match.matched_column_indicator(), tf.float32)

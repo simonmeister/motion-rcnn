@@ -22,7 +22,7 @@ from object_detection.data_decoders.tf_example_decoder import TfExampleDecoder
 
 
 with tf.Graph().as_default():
-    file_pattern = 'data/records/cityscapes_mini/00000-of-00004.record'
+    file_pattern = 'object_detection/data/records/cityscapes_mini/00000-of-00004.record'
     tfrecords = glob.glob(file_pattern)
 
     with tf.device('/cpu:0'):
@@ -41,7 +41,7 @@ with tf.Graph().as_default():
     sess.run(init_op)
 
     tf.train.start_queue_runners(sess=sess)
-    out_dir = 'output/tests/cityscapes/'
+    out_dir = 'object_detection/output/tests/cityscapes/'
     if os.path.isdir(out_dir):
       shutil.rmtree(out_dir)
     os.makedirs(out_dir)
@@ -68,7 +68,8 @@ with tf.Graph().as_default():
             num_instances_np = gt_masks_np.shape[0]
             print('image_id: {}, instances: {}, shape: {}'
                   .format(img_id_np, num_instances_np, image_np.shape))
-            image_np = np.squeeze(image_np)
+            image_np = np.zeros_like(image_np)
+            #image_np = np.squeeze(image_np)
 
             # overlay masks
             for i in range(gt_boxes_np.shape[0]):
