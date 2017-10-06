@@ -13,6 +13,6 @@ on Cityscapes is supported.
 - [tensorflow (>= 1.2.0)](https://www.tensorflow.org/install/install_linux) with GPU support.
   For best performance, building from source is highly recommended.
 
-
-## TODO
-- complete README
+## Acknowledgments
+This repository is based on the 
+[Tensorflow Object Detection API](https://github.com/tensorflow/models/tree/master/research/object_detection).
