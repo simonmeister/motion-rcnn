@@ -1,9 +1,4 @@
 # Motion R-CNN
-This repository contains the official
-[TensorFlow](https://tensorflow.org) 
-implementation of Motion R-CNN. As a baseline, training of Mask R-CNN on 
-Cityscapes
-is supported.
 
 This repository contains the original
 [TensorFlow](https://tensorflow.org) 
