@@ -52,15 +52,14 @@ def build(anchor_generator_config):
         anchor_offset=[grid_anchor_generator_config.height_offset,
                        grid_anchor_generator_config.width_offset])
   elif anchor_generator_config.WhichOneof(
-      'anchor_generator_oneof') == 'ssd_anchor_generator':
-    ssd_anchor_generator_config = anchor_generator_config.ssd_anchor_generator
-    return multiple_grid_anchor_generator.create_ssd_anchors(
-        num_layers=ssd_anchor_generator_config.num_layers,
-        min_scale=ssd_anchor_generator_config.min_scale,
-        max_scale=ssd_anchor_generator_config.max_scale,
-        aspect_ratios=ssd_anchor_generator_config.aspect_ratios,
-        reduce_boxes_in_lowest_layer=(ssd_anchor_generator_config
-                                      .reduce_boxes_in_lowest_layer))
+      'anchor_generator_oneof') == 'fpn_anchor_generator':
+    fpn_anchor_generator_config = anchor_generator_config.fpn_anchor_generator
+    return multiple_grid_anchor_generator.FpnAnchorGenerator(
+        scales=[float(scale) for scale in fpn_anchor_generator_config.scales],
+        aspect_ratios=[float(aspect_ratio)
+                       for aspect_ratio
+                       in fpn_anchor_generator_config.aspect_ratios],
+        base_anchor_size=[fpn_anchor_generator_config.height,
+                          fpn_anchor_generator_config.width],)
   else:
     raise ValueError('Empty anchor generator.')
-

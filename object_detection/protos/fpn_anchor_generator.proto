@@ -1,0 +1,24 @@
+syntax = "proto2";
+
+package object_detection.protos;
+
+// Configuration proto for FPN anchor generator described in
+// https://arxiv.org/abs/1612.03144. See
+// anchor_generators/multiple_grid_anchor_generator.py for details.
+
+message FpnAnchorGenerator {
+   // Anchor height in pixels.
+  optional int32 height = 1 [default = 256];
+
+  // Anchor width in pixels.
+  optional int32 width = 2 [default = 256];
+
+  // At any given location in each of the len(scales) grids,
+  // len(aspect_ratios) anchors are generated.
+
+  // List of scales, one for each pyramid level.
+  repeated float scales = 7;
+
+  // List of aspect ratios for the anchors.
+  repeated float aspect_ratios = 8;
+}

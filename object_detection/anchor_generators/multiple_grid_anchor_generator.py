@@ -220,54 +220,51 @@ class MultipleGridAnchorGenerator(anchor_generator.AnchorGenerator):
     return concatenated_anchors
 
 
-def create_ssd_anchors(num_layers=6,
-                       min_scale=0.2,
-                       max_scale=0.95,
-                       aspect_ratios=(1.0, 2.0, 3.0, 1.0/2, 1.0/3),
-                       base_anchor_size=None,
-                       reduce_boxes_in_lowest_layer=True):
-  """Creates MultipleGridAnchorGenerator for SSD anchors.
+class FpnAnchorGenerator(MultipleGridAnchorGenerator):
+  def __init__(scales,
+               aspect_ratios=[0.5, 1.0, 2.0],
+               base_anchor_size=None):
+    """Constructs a FpnAnchorGenerator.
+    See the "Feature Pyramid Networks" paper by Lin et al.
 
-  This function instantiates a MultipleGridAnchorGenerator that reproduces
-  ``default box`` construction proposed by Liu et al in the SSD paper.
-  See Section 2.2 for details. Grid sizes are assumed to be passed in
-  at generation time from finest resolution to coarsest resolution --- this is
-  used to (linearly) interpolate scales of anchor boxes corresponding to the
-  intermediate grid sizes.
+    Anchors that are returned by calling the `generate` method on the returned
+    MultipleGridAnchorGenerator object are always in normalized coordinates
+    and clipped to the unit square: (i.e. all coordinates lie in [0, 1]x[0, 1]).
 
-  Anchors that are returned by calling the `generate` method on the returned
-  MultipleGridAnchorGenerator object are always in normalized coordinates
-  and clipped to the unit square: (i.e. all coordinates lie in [0, 1]x[0, 1]).
-
-  Args:
+    Args:
     num_layers: integer number of grid layers to create anchors for (actual
       grid sizes passed in at generation time)
-    min_scale: scale of anchors corresponding to finest resolution (float)
-    max_scale: scale of anchors corresponding to coarsest resolution (float)
     aspect_ratios: list or tuple of (float) aspect ratios to place on each
-      grid point.
+      pyramid location.
     base_anchor_size: base anchor size as [height, width].
-    reduce_boxes_in_lowest_layer: a boolean to indicate whether the fixed 3
-      boxes per location is used in the lowest layer.
+    """
+    self._pyramid_scales = scales
+    box_specs_list = [[(aspect_ratio, scale)
+        for aspect_ratio in aspect_ratios] for scale in scales]
+    super().__init__(box_specs_list, aspect_ratios)
 
-  Returns:
-    a MultipleGridAnchorGenerator
-  """
-  if base_anchor_size is None:
-    base_anchor_size = [1.0, 1.0]
-  base_anchor_size = tf.constant(base_anchor_size, dtype=tf.float32)
-  box_specs_list = []
-  scales = [min_scale + (max_scale - min_scale) * i / (num_layers - 1)
-            for i in range(num_layers)] + [1.0]
-  for layer, scale, scale_next in zip(
-      range(num_layers), scales[:-1], scales[1:]):
-    layer_box_specs = []
-    if layer == 0 and reduce_boxes_in_lowest_layer:
-      layer_box_specs = [(0.1, 1.0), (scale, 2.0), (scale, 0.5)]
-    else:
-      for aspect_ratio in aspect_ratios:
-        layer_box_specs.append((scale, aspect_ratio))
-        if aspect_ratio == 1.0:
-          layer_box_specs.append((np.sqrt(scale*scale_next), 1.0))
-    box_specs_list.append(layer_box_specs)
-  return MultipleGridAnchorGenerator(box_specs_list, base_anchor_size)
+  def assign_boxes_to_layers(self, absolute_boxes):
+    """Assigns boxes to feature pyramid layers.
+
+    Args:
+      absolute_boxes: A float32 tensor with shape [batch_size,
+        num_proposals, box_code_size] containing boxes in
+        absolute coordinates.
+
+    Returns:
+      layer_indices: A int32 tensor of shape [N],
+        ranging from lowest resolution (0) to highest (num_resolutions - 1)
+    """
+    def log2(x):
+      numerator = tf.log(x)
+      denominator = tf.log(tf.constant(2, dtype=numerator.dtype))
+      return numerator / denominator
+
+    min_scale = self._base_anchor_size * self._pyramid_scales[0]
+    box_scales = tf.sqrt(box_list_ops.area(BoxList(absolute_boxes)))
+
+    ks = log2(box_scales / min_scale)
+    max_k = len(self._pyramid_scales) - 1
+    clipped_ks = tf.minimum(tf.maximum(ks, 0), max_k)
+
+    return tf.to_int32(clipped_k)

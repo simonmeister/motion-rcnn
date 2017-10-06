@@ -1,4 +1,4 @@
-cd# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -69,7 +69,7 @@ from abc import abstractmethod
 from functools import partial
 import tensorflow as tf
 
-from object_detection.anchor_generators import grid_anchor_generator
+from object_detection.anchor_generators import multiple_grid_anchor_generator
 from object_detection.core import balanced_positive_negative_sampler as sampler
 from object_detection.core import box_list
 from object_detection.core import box_list_ops
@@ -79,7 +79,6 @@ from object_detection.core import model
 from object_detection.core import post_processing
 from object_detection.core import standard_fields as fields
 from object_detection.core import target_assigner
-from object_detection.core import resolution_assigner
 from object_detection.utils import ops
 from object_detection.utils import shape_utils
 
@@ -234,9 +233,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
       feature_extractor: A FasterRCNNFeatureExtractor object.
       first_stage_only:  Whether to construct only the Region Proposal Network
         (RPN) part of the model.
-      first_stage_anchor_generator: An anchor_generator.AnchorGenerator object
-        (note that currently we only support
-        grid_anchor_generator.GridAnchorGenerator objects)
+      first_stage_anchor_generator: An anchor_generator.AnchorGenerator object.
       first_stage_atrous_rate: A single integer indicating the atrous rate for
         the single convolution op which is applied to the `rpn_features_to_crop`
         tensor to obtain a tensor to be used for box prediction. Some feature
@@ -305,18 +302,12 @@ class FasterRCNNMetaArch(model.DetectionModel):
         in parallel for calls to tf.map_fn.
     Raises:
       ValueError: If `second_stage_batch_size` > `first_stage_max_proposals`
-      ValueError: If first_stage_anchor_generator is not of type
-        grid_anchor_generator.GridAnchorGenerator.
     """
     super(FasterRCNNMetaArch, self).__init__(num_classes=num_classes)
 
     if second_stage_batch_size > first_stage_max_proposals:
       raise ValueError('second_stage_batch_size should be no greater than '
                        'first_stage_max_proposals.')
-    if not isinstance(first_stage_anchor_generator,
-                      grid_anchor_generator.GridAnchorGenerator):
-      raise ValueError('first_stage_anchor_generator must be of type '
-                       'grid_anchor_generator.GridAnchorGenerator.')
 
     self._is_training = is_training
     self._image_resizer_fn = image_resizer_fn
@@ -601,9 +592,13 @@ class FasterRCNNMetaArch(model.DetectionModel):
         rpn_box_encodings, rpn_objectness_predictions_with_background,
         anchors, image_shape)
 
+    absolute_proposal_boxes = ops.normalized_to_image_coordinates(
+        proposal_boxes_normalized, image_shape, self._parallel_iterations)
+
     flattened_proposal_feature_maps = (
         self._compute_second_stage_input_feature_maps(
-            rpn_features_to_crop, proposal_boxes_normalized, image_shape))
+            rpn_features_to_crop,
+            proposal_boxes_normalized, absolute_proposal_boxes))
 
     box_classifier_features = (
         self._feature_extractor.extract_box_classifier_features(
@@ -618,9 +613,6 @@ class FasterRCNNMetaArch(model.DetectionModel):
         box_predictions[box_predictor.BOX_ENCODINGS], axis=1)
     class_predictions_with_background = tf.squeeze(box_predictions[
         box_predictor.CLASS_PREDICTIONS_WITH_BACKGROUND], axis=1)
-
-    absolute_proposal_boxes = ops.normalized_to_image_coordinates(
-        proposal_boxes_normalized, image_shape, self._parallel_iterations)
 
     prediction_dict = {
         'refined_box_encodings': refined_box_encodings,
@@ -705,9 +697,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
         tensor *includes* background class predictions (at class index 0).
 
     Raises:
-      RuntimeError: if the anchor generator generates anchors corresponding to
-        multiple feature maps.  We currently assume that a single feature map
-        is generated for the RPN.
+      RuntimeError: if the anchor generator does not generates anchors for
+        each of the feature maps.
     """
     num_anchors_per_location = (
         self._first_stage_anchor_generator.num_anchors_per_location())
@@ -1094,9 +1085,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
 
   def _compute_second_stage_input_feature_maps(self, features_to_crop,
                                                proposal_boxes_normalized,
-                                               image_shape):
-    """Crops to a set of proposals from the multi-resolution feature maps
-    for a batch of images.
+                                               absolute_proposal_boxes):
+    """Crops to a set of proposals from the feature maps for a batch of images.
 
     Helper function for self._postprocess_rpn. This function calls
     `tf.image.crop_and_resize` to create the feature map to be passed to the
@@ -1108,7 +1098,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
       proposal_boxes_normalized: A float32 tensor with shape [batch_size,
         num_proposals, box_code_size] containing proposal boxes in
         normalized coordinates.
-      image_shape: A 1D int32 tensors of size [4] containing the image shape.
+      absolute_proposal_boxes: same boxes as proposal_boxes_normalized, in
+        absolute coordinates.
 
     Returns:
       A float32 tensor with shape [K, new_height, new_width, depth].
@@ -1123,9 +1114,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
       return tf.reshape(ones_mat * multiplier, [-1])
 
     if len(features_to_crop) == 1:
-      features_to_crop = features_to_crop[0]
       cropped_regions = tf.image.crop_and_resize(
-          features_to_crop,
+          features_to_crop[0],
           self._flatten_first_two_dimensions(proposal_boxes_normalized),
           get_box_inds(proposal_boxes_normalized),
           (self._initial_crop_size, self._initial_crop_size))
@@ -1134,37 +1124,60 @@ class FasterRCNNMetaArch(model.DetectionModel):
           [self._maxpool_kernel_size, self._maxpool_kernel_size],
           stride=self._maxpool_stride)
     else:
-      resolution_indices = resolution_assigner._assign_to_resolutions(
-          flattened_proposal_boxes_normalized, image_shape)
+      return self._crop_from_feature_pyramid(
+          features_to_crop
+          self._flatten_first_two_dimensions(proposal_boxes_normalized),
+          self._flatten_first_two_dimensions(absolute_proposal_boxes),
+          self._initial_crop_size / self._maxpool_stride,
+          self._initial_crop_size / self._maxpool_stride)
 
-      cropped_regions_list = []
-      gathered_indices_list = []
-      for i, feature_map in enumerate(features_to_crop):
-        gathered_indices = tf.where(tf.equal(resolution_indices, i))
-        gathered_boxes = tf.gather_nd(proposal_boxes_normalized,
-                                      gathered_indices)
-        flattened_gathered_boxes = self._flatten_first_two_dimensions(
-            gathered_boxes)
-        cropped_regions = tf.image.crop_and_resize(
-            feature_map,
-            flattened_gathered_boxes,
-            get_box_inds(gathered_boxes),
-            (self._initial_crop_size, self._initial_crop_size))
-        cropped_regions_list.append(cropped_regions)
-        gathered_indices_list.append(gathered_indices)
+  def _crop_from_feature_pyramid(self, feature_pyramid,
+                                 normalized_boxes,
+                                 absolute_boxes,
+                                 crop_height, crop_width):
+    """Crops boxes from appropriate levels of a feature pyramid.
 
-      flattened_cropped_regions = tf.concat(
-          cropped_regions_list, axis=0)
-      gathered_indices = tf.to_int32(
-          tf.concat(gathered_indices_list, axis=0))
-      flattened_gathered_indices = self._flatten_first_two_dimensions(
-          num_anchors * gathered_indices[:, 0] + gathered_indices[:, 1]) # TODO num_anchors
+    Helper function for self._compute_second_stage_input_feature_maps.
 
-      num_crops = num_anchors * num_batch #TODO self.max_num_proposals??
-      return tf.scatter_nd(
-          tf.expand_dims(flattened_gathered_indices, axis=1),
-          flattened_cropped_regions,
-          tf.stack([num_crops, 14, 14, 256]))
+    Args:
+      feature_pyramid: A list of float32 tensors with shape
+        [batch_size, height_i, width_i, depth].
+      normalized_boxes: A float32 tensor with shape [batch_size,
+        num_proposals, box_code_size] containing boxes in
+        normalized coordinates.
+      absolute_boxes: same boxes as normalized_boxes, in
+        absolute coordinates.
+      crop_height: Height of crops.
+      crop_width: Width of crops.
+
+    Returns:
+      A float32 tensor with shape [K, crop_height, crop_width, depth].
+    """
+    # TODO assert that the generator is a FpnAnchorGenerator if we use the FPN arch
+    # and the GridAnchorGenerator if we use the standard arch
+    layer_indices = self._first_stage_anchor_generator.assign_boxes_to_layers(
+        absolute_boxes)
+
+    cropped_regions_list = []
+    assigned_box_indices_list = []
+    for i, feature_map in enumerate(feature_pyramid):
+      assigned_box_indices = tf.where(tf.equal(layer_indices, i))
+      assigned_boxes = tf.gather_nd(normalized_boxes, assigned_box_indices)
+      cropped_regions = tf.image.crop_and_resize(
+          feature_map,
+          assigned_boxes,
+          tf.zeros(tf.shape(assigned_boxes)[:1]),
+          (crop_height, crop_width))
+      cropped_regions_list.append(cropped_regions)
+      assigned_box_indices_list.append(assigned_box_indices)
+
+    cropped_regions = tf.concat(cropped_regions_list, axis=0)
+    assigned_box_indices = tf.to_int32(tf.concat(assigned_box_indices_list, axis=0))
+
+    return tf.scatter_nd(
+        assigned_box_indices,
+        cropped_regions,
+        tf.shape(cropped_regions))
 
   def _postprocess_box_classifier(self,
                                   refined_box_encodings,
