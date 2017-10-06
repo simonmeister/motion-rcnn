@@ -12,5 +12,5 @@ setup(
     install_requires=REQUIRED_PACKAGES,
     include_package_data=True,
     packages=[p for p in find_packages() if p.startswith('object_detection')],
-    description='Tensorflow Object Detection Library',
+    description='Motion R-CNN',
 )
