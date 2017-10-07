@@ -69,6 +69,32 @@ class MaskRCNNBoxPredictorTest(tf.test.TestCase):
       self.assertAllEqual(box_encodings_shape, [2, 1, 5, 4])
       self.assertAllEqual(class_predictions_with_background_shape, [2, 1, 6])
 
+  def test_get_boxes_with_five_classes_fpn(self):
+    image_features = tf.random_uniform([2, 7, 7, 3], dtype=tf.float32)
+    mask_box_predictor = box_predictor.MaskRCNNBoxPredictor(
+        is_training=False,
+        num_classes=5,
+        fc_hyperparams=self._build_arg_scope_with_hyperparams(),
+        use_dropout=False,
+        dropout_keep_prob=0.5,
+        box_code_size=4,
+        fpn_fc_branch=True
+    )
+    box_predictions = mask_box_predictor.predict(
+        image_features, num_predictions_per_location=1, scope='BoxPredictor')
+    box_encodings = box_predictions[box_predictor.BOX_ENCODINGS]
+    class_predictions_with_background = box_predictions[
+        box_predictor.CLASS_PREDICTIONS_WITH_BACKGROUND]
+    init_op = tf.global_variables_initializer()
+    with self.test_session() as sess:
+      sess.run(init_op)
+      (box_encodings_shape,
+       class_predictions_with_background_shape) = sess.run(
+           [tf.shape(box_encodings),
+            tf.shape(class_predictions_with_background)])
+      self.assertAllEqual(box_encodings_shape, [2, 1, 5, 4])
+      self.assertAllEqual(class_predictions_with_background_shape, [2, 1, 6])
+
   def test_value_error_on_predict_instance_masks_with_no_conv_hyperparms(self):
     with self.assertRaises(ValueError):
       box_predictor.MaskRCNNBoxPredictor(
@@ -91,7 +117,8 @@ class MaskRCNNBoxPredictorTest(tf.test.TestCase):
         box_code_size=4,
         conv_hyperparams=self._build_arg_scope_with_hyperparams(
             op_type=hyperparams_pb2.Hyperparams.CONV),
-        predict_instance_masks=True)
+        predict_instance_masks=True,
+        num_layers_before_mask_prediction=2)
     box_predictions = mask_box_predictor.predict(
         image_features, num_predictions_per_location=1, scope='BoxPredictor')
     mask_predictions = box_predictions[box_predictor.MASK_PREDICTIONS]

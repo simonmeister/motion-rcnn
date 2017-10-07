@@ -279,7 +279,9 @@ class MaskRCNNBoxPredictor(BoxPredictor):
                conv_hyperparams=None,
                predict_instance_masks=False,
                mask_prediction_conv_depth=256,
-               predict_keypoints=False):
+               num_layers_before_mask_prediction=0,
+               predict_keypoints=False,
+               fpn_fc_branch=False):
     """Constructor.
 
     Args:
@@ -300,10 +302,14 @@ class MaskRCNNBoxPredictor(BoxPredictor):
         ops.
       predict_instance_masks: Whether to predict object masks inside detection
         boxes.
-      mask_prediction_conv_depth: The depth for the first conv2d_transpose op
-        applied to the image_features in the mask prediciton branch.
+      mask_prediction_conv_depth: The depth for the conv2d ops
+        applied to the image_features in the mask prediction branch.
       predict_keypoints: Whether to predict keypoints insde detection boxes.
-
+      num_layers_before_mask_prediction: The number of consecutive conv2d ops
+        applied to the image_features in the mask prediction branch
+        before the final upsampling.
+      fpn_fc_branch: Whether to use FPN style for the fully connected branch.
+        See the paper, Figure 3.
 
     Raises:
       ValueError: If predict_instance_masks or predict_keypoints is true.
@@ -316,7 +322,9 @@ class MaskRCNNBoxPredictor(BoxPredictor):
     self._conv_hyperparams = conv_hyperparams
     self._predict_instance_masks = predict_instance_masks
     self._mask_prediction_conv_depth = mask_prediction_conv_depth
+    self._num_layers_before_mask_prediction = num_layers_before_mask_prediction
     self._predict_keypoints = predict_keypoints
+    self._fpn_fc_branch = fpn_fc_branch
     if self._predict_keypoints:
       raise ValueError('Keypoint prediction is unimplemented.')
     if ((self._predict_instance_masks or self._predict_keypoints) and
@@ -364,14 +372,31 @@ class MaskRCNNBoxPredictor(BoxPredictor):
     if num_predictions_per_location != 1:
       raise ValueError('Currently FullyConnectedBoxPredictor only supports '
                        'predicting a single box per class per location.')
-    spatial_averaged_image_features = tf.reduce_mean(image_features, [1, 2],
-                                                     keep_dims=True,
-                                                     name='AvgPool')
-    flattened_image_features = slim.flatten(spatial_averaged_image_features)
-    if self._use_dropout:
-      flattened_image_features = slim.dropout(flattened_image_features,
-                                              keep_prob=self._dropout_keep_prob,
-                                              is_training=self._is_training)
+
+    if self._fpn_fc_branch:
+      subsampled_image_features = slim.max_pool2d(image_features, [1, 1],
+                                                  stride=2)
+      flattened_image_features = slim.flatten(subsampled_image_features)
+      for _ in range(2):
+        flattened_image_features = slim.fully_connected(
+            flattened_image_features, 1024)
+        if self._use_dropout:
+          flattened_image_features = slim.dropout(
+              flattened_image_features,
+              keep_prob=self._dropout_keep_prob,
+              is_training=self._is_training)
+    else:
+      # TODO did they miss the 2048 fully connected layer?
+      spatial_averaged_image_features = tf.reduce_mean(image_features, [1, 2],
+                                                       keep_dims=True,
+                                                       name='AvgPool')
+      flattened_image_features = slim.flatten(spatial_averaged_image_features)
+      if self._use_dropout:
+        flattened_image_features = slim.dropout(
+            flattened_image_features,
+            keep_prob=self._dropout_keep_prob,
+            is_training=self._is_training)
+
     with slim.arg_scope(self._fc_hyperparams):
       box_encodings = slim.fully_connected(
           flattened_image_features,
@@ -395,8 +420,14 @@ class MaskRCNNBoxPredictor(BoxPredictor):
 
     if self._predict_instance_masks:
       with slim.arg_scope(self._conv_hyperparams):
+        mask_features = image_features
+        for _ in range(self._num_layers_before_mask_prediction):
+          mask_features = slim.conv2d(mask_features,
+                                      num_outputs=self._mask_prediction_conv_depth,
+                                      kernel_size=[3, 3],
+                                      stride=1)
         upsampled_features = slim.conv2d_transpose(
-            image_features,
+            mask_features,
             num_outputs=self._mask_prediction_conv_depth,
             kernel_size=[2, 2],
             stride=2)

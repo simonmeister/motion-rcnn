@@ -73,8 +73,16 @@ message MaskRCNNBoxPredictor {
   // image_features in the mask prediciton branch
   optional int32 mask_prediction_conv_depth = 7 [default = 256];
 
+  // The number of consecutive conv2d ops
+  // applied to the image_features in the mask prediction branch
+  // before the final upsampling.
+  optional int32 num_layers_before_mask_prediction = 8 [default = 0];
+
   // Whether to predict keypoints inside detection boxes.
-  optional bool predict_keypoints = 8 [default = false];
+  optional bool predict_keypoints = 9 [default = false];
+
+  // Whether to use FPN style for the fully connected branch.
+  optional bool fpn_fc_branch = 10 [default = false];
 }
 
 message RfcnBoxPredictor {

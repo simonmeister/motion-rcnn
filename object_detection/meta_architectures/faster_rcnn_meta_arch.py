@@ -1128,8 +1128,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
           features_to_crop,
           self._flatten_first_two_dimensions(proposal_boxes_normalized),
           self._flatten_first_two_dimensions(absolute_proposal_boxes),
-          self._initial_crop_size / self._maxpool_stride,
-          self._initial_crop_size / self._maxpool_stride)
+          self._initial_crop_size,
+          self._initial_crop_size)
 
   def _crop_from_feature_pyramid(self, feature_pyramid,
                                  normalized_boxes,
