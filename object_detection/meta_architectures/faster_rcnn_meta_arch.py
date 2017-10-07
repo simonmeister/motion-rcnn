@@ -712,7 +712,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
       box_predictions = self._first_stage_box_predictor.predict(
           feature_map,
           num_anchors_per_location[i],
-          scope=self.first_stage_box_predictor_scope)
+          scope=self.first_stage_box_predictor_scope + str(i))
       box_encodings_list.append(
           box_predictions[box_predictor.BOX_ENCODINGS])
       objectness_predictions_with_background_list.append(
@@ -1166,7 +1166,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
       cropped_regions = tf.image.crop_and_resize(
           feature_map,
           assigned_boxes,
-          tf.zeros(tf.shape(assigned_boxes)[:1]),
+          tf.zeros(tf.shape(assigned_boxes)[:1], dtype=tf.int32),
           (crop_height, crop_width))
       cropped_regions_list.append(cropped_regions)
       assigned_box_indices_list.append(assigned_box_indices)

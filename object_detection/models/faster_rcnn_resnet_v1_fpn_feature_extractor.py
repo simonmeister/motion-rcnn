@@ -79,7 +79,7 @@ def resnet_v1_50(inputs,
       reuse=reuse, scope=scope)
 
 
-class FasterRCNNResnetV1FeatureExtractor(
+class FasterRCNNResnetV1FPNFeatureExtractor(
     faster_rcnn_meta_arch.FasterRCNNFeatureExtractor):
   """Faster R-CNN Resnet V1 feature extractor implementation."""
 
@@ -105,7 +105,7 @@ class FasterRCNNResnetV1FeatureExtractor(
     self._architecture = architecture
     self._resnet_model = resnet_model
     self._handles_map = handles_map
-    super(FasterRCNNResnetV1FeatureExtractor, self).__init__(
+    super(FasterRCNNResnetV1FPNFeatureExtractor, self).__init__(
         is_training, 32, reuse_weights, weight_decay)
 
   def preprocess(self, resized_inputs):
@@ -217,11 +217,12 @@ class FasterRCNNResnetV1FeatureExtractor(
     return proposal_feature_maps
 
 
-class FasterRCNNResnet50FPNFeatureExtractor(FasterRCNNResnetV1FeatureExtractor):
+class FasterRCNNResnet50FPNFeatureExtractor(FasterRCNNResnetV1FPNFeatureExtractor):
   """Faster R-CNN Resnet 50 feature extractor implementation."""
 
   def __init__(self,
                is_training,
+               first_stage_features_stride,
                reuse_weights=None,
                weight_decay=0.0):
     """Constructor.
