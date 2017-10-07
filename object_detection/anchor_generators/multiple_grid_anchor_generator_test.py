@@ -20,6 +20,7 @@ import numpy as np
 import tensorflow as tf
 
 from object_detection.anchor_generators import multiple_grid_anchor_generator as ag
+from object_detection.core import box_list_ops
 
 
 class MultipleGridAnchorGeneratorTest(tf.test.TestCase):
@@ -217,36 +218,56 @@ class MultipleGridAnchorGeneratorTest(tf.test.TestCase):
                                 anchor_offsets=[(.125), (.25)])
 
 
-class CreateSSDAnchorsTest(tf.test.TestCase):
+class FpnAnchorGeneratorTest(tf.test.TestCase):
+  def test_construct_pyramid(self):
+    scales = [0.125, 0.25, 0.5, 1.0, 2.0]
 
-  def test_create_ssd_anchors_returns_correct_shape(self):
-    anchor_generator = ag.create_ssd_anchors(
-        num_layers=6, min_scale=0.2, max_scale=0.95,
-        aspect_ratios=(1.0, 2.0, 3.0, 1.0/2, 1.0/3),
-        reduce_boxes_in_lowest_layer=True)
+    anchor_generator = ag.FpnAnchorGenerator(
+        scales=scales,
+        aspect_ratios=[0.5, 1.0, 2.0],
+        base_anchor_size=(256, 256))
 
-    feature_map_shape_list = [(38, 38), (19, 19), (10, 10),
-                              (5, 5), (3, 3), (1, 1)]
-    anchors = anchor_generator.generate(
+    self.assertEqual(len(anchor_generator.num_anchors_per_location()), 5)
+
+    feature_map_shape_list = [(16, 32), (32, 64), (64, 128),
+                              (128, 256), (256, 512)]
+
+    anchor_boxlist = anchor_generator.generate(
         feature_map_shape_list=feature_map_shape_list)
-    anchor_corners = anchors.get()
-    with self.test_session():
-      anchor_corners_out = anchor_corners.eval()
-      self.assertEquals(anchor_corners_out.shape, (7308, 4))
+    anchors = anchor_boxlist.get()
+    areas = box_list_ops.area(anchor_boxlist)
 
-    anchor_generator = ag.create_ssd_anchors(
-        num_layers=6, min_scale=0.2, max_scale=0.95,
-        aspect_ratios=(1.0, 2.0, 3.0, 1.0/2, 1.0/3),
-        reduce_boxes_in_lowest_layer=False)
-
-    feature_map_shape_list = [(38, 38), (19, 19), (10, 10),
-                              (5, 5), (3, 3), (1, 1)]
-    anchors = anchor_generator.generate(
-        feature_map_shape_list=feature_map_shape_list)
-    anchor_corners = anchors.get()
     with self.test_session():
-      anchor_corners_out = anchor_corners.eval()
-      self.assertEquals(anchor_corners_out.shape, (11640, 4))
+      anchors_out = anchors.eval()
+      areas_out = areas.eval()
+      expected_num_anchors = sum([h * w * 3 for h, w in feature_map_shape_list])
+      self.assertEqual(expected_num_anchors, anchors_out.shape[0])
+      prev_grid_elems = 0
+      for grid_size, scale in zip(feature_map_shape_list, scales):
+        this_grid_elems = grid_size[0] * grid_size[1] * 3
+        self.assertAllClose(areas_out[prev_grid_elems: this_grid_elems + prev_grid_elems],
+                            np.array([(scale*256)**2] * this_grid_elems))
+        prev_grid_elems += this_grid_elems
+
+  def test_assign_boxes_to_layers(self):
+    anchor_generator = ag.FpnAnchorGenerator(
+        scales=[0.125, 0.25, 0.5, 1.0, 2.0],
+        aspect_ratios=[0.5, 1.0, 2.0],
+        base_anchor_size=(256, 256))
+
+    boxes = tf.constant(np.array(
+      [(53, 124, 55, 129),
+       (145, 40, 195, 60),
+       (0, 0, 128, 32),
+       (400, 32, 510, 132),
+       (256, 0, 550, 212),
+       (0, 512, 512, 1024),
+       (0, 0, 1024, 2028)]), dtype=tf.float32)
+    layer_indices = anchor_generator.assign_boxes_to_layers(boxes)
+    expected_layer_indices = [0, 0, 1, 2, 3, 4, 4]
+
+    with self.test_session():
+      self.assertAllEqual(layer_indices.eval(), expected_layer_indices)
 
 
 if __name__ == '__main__':

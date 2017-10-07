@@ -17,8 +17,8 @@ message FpnAnchorGenerator {
   // len(aspect_ratios) anchors are generated.
 
   // List of scales, one for each pyramid level.
-  repeated float scales = 7;
+  repeated float scales = 3;
 
   // List of aspect ratios for the anchors.
-  repeated float aspect_ratios = 8;
+  repeated float aspect_ratios = 4;
 }

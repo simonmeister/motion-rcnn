@@ -17,10 +17,8 @@
 
 Generates grid anchors on the fly corresponding to multiple CNN layers as
 described in:
-"SSD: Single Shot MultiBox Detector"
-Wei Liu, Dragomir Anguelov, Dumitru Erhan, Christian Szegedy, Scott Reed,
-Cheng-Yang Fu, Alexander C. Berg
-(see Section 2.2: Choosing scales and aspect ratios for default boxes)
+"Feature Pyramid Networks for Object Detection",
+Lin et al.
 """
 
 import numpy as np
@@ -30,6 +28,7 @@ import tensorflow as tf
 from object_detection.anchor_generators import grid_anchor_generator
 from object_detection.core import anchor_generator
 from object_detection.core import box_list_ops
+from object_detection.core import box_list
 
 
 class MultipleGridAnchorGenerator(anchor_generator.AnchorGenerator):
@@ -221,11 +220,10 @@ class MultipleGridAnchorGenerator(anchor_generator.AnchorGenerator):
 
 
 class FpnAnchorGenerator(MultipleGridAnchorGenerator):
-  def __init__(scales,
+  def __init__(self, scales,
                aspect_ratios=[0.5, 1.0, 2.0],
                base_anchor_size=None):
-    """Constructs a FpnAnchorGenerator.
-    See the "Feature Pyramid Networks" paper by Lin et al.
+    """Constructs a FpnAnchorGenerator. See the paper by Lin et al.
 
     Anchors that are returned by calling the `generate` method on the returned
     MultipleGridAnchorGenerator object are always in normalized coordinates
@@ -239,9 +237,9 @@ class FpnAnchorGenerator(MultipleGridAnchorGenerator):
     base_anchor_size: base anchor size as [height, width].
     """
     self._pyramid_scales = scales
-    box_specs_list = [[(aspect_ratio, scale)
+    box_specs_list = [[(scale, aspect_ratio)
         for aspect_ratio in aspect_ratios] for scale in scales]
-    super().__init__(box_specs_list, aspect_ratios)
+    super().__init__(box_specs_list, base_anchor_size)
 
   def assign_boxes_to_layers(self, absolute_boxes):
     """Assigns boxes to feature pyramid layers.
@@ -260,11 +258,11 @@ class FpnAnchorGenerator(MultipleGridAnchorGenerator):
       denominator = tf.log(tf.constant(2, dtype=numerator.dtype))
       return numerator / denominator
 
-    min_scale = self._base_anchor_size * self._pyramid_scales[0]
-    box_scales = tf.sqrt(box_list_ops.area(BoxList(absolute_boxes)))
+    min_scale = self._base_anchor_size[0] * self._pyramid_scales[0]
+    box_scales = tf.sqrt(box_list_ops.area(box_list.BoxList(absolute_boxes)))
 
-    ks = log2(box_scales / min_scale)
     max_k = len(self._pyramid_scales) - 1
-    clipped_ks = tf.minimum(tf.maximum(ks, 0), max_k)
+    k = tf.round(log2(box_scales / min_scale))
+    k = tf.minimum(tf.maximum(k, 0), max_k)
 
-    return tf.to_int32(clipped_k)
+    return tf.to_int32(k)
