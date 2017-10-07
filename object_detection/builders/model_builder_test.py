@@ -20,8 +20,8 @@ import tensorflow as tf
 from google.protobuf import text_format
 from object_detection.builders import model_builder
 from object_detection.meta_architectures import faster_rcnn_meta_arch
-from object_detection.models import faster_rcnn_inception_resnet_v2_feature_extractor as frcnn_inc_res
 from object_detection.models import faster_rcnn_resnet_v1_feature_extractor as frcnn_resnet_v1
+from object_detection.models import faster_rcnn_resnet_v1_fpn_feature_extractor as frcnn_resnet_v1_fpn
 from object_detection.protos import model_pb2
 
 FEATURE_EXTRACTOR_MAPS = {
@@ -30,7 +30,10 @@ FEATURE_EXTRACTOR_MAPS = {
     'faster_rcnn_resnet101':
     frcnn_resnet_v1.FasterRCNNResnet101FeatureExtractor,
     'faster_rcnn_resnet152':
-    frcnn_resnet_v1.FasterRCNNResnet152FeatureExtractor
+    frcnn_resnet_v1.FasterRCNNResnet152FeatureExtractor,
+
+    'faster_rcnn_resnet50_fpn':
+    frcnn_resnet_v1_fpn.FasterRCNNResnet50FPNFeatureExtractor,
 }
 
 
@@ -120,7 +123,7 @@ def test_create_faster_rcnn_resnet_v1_models_from_config(self):
       faster_rcnn {
         num_classes: 3
         feature_extractor {
-          type: 'faster_rcnn_inception_resnet_v2'
+          type: 'faster_rcnn_resnet50_fpn'
         }
         image_resizer {
           keep_aspect_ratio_resizer {

@@ -1125,7 +1125,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
           stride=self._maxpool_stride)
     else:
       return self._crop_from_feature_pyramid(
-          features_to_crop
+          features_to_crop,
           self._flatten_first_two_dimensions(proposal_boxes_normalized),
           self._flatten_first_two_dimensions(absolute_proposal_boxes),
           self._initial_crop_size / self._maxpool_stride,
