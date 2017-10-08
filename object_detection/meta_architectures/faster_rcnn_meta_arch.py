@@ -661,10 +661,17 @@ class FasterRCNNMetaArch(model.DetectionModel):
     for feature_map in rpn_features_to_crop:
       feature_map_shape = tf.shape(feature_map)
       feature_map_sizes.append((feature_map_shape[1], feature_map_shape[2]))
-    anchors = self._first_stage_anchor_generator.generate(
-        feature_map_sizes,
-        anchor_strides=(self._feature_extractor.
-                        extracted_proposal_features_strides))
+
+    if isinstance(self._first_stage_anchor_generator,
+                  multiple_grid_anchor_generator.
+                  MultipleGridAnchorGenerator):
+      anchors = self._first_stage_anchor_generator.generate(
+          feature_map_sizes,
+          anchor_strides=(self._feature_extractor.
+                          extracted_proposal_features_strides))
+    else:
+      anchors = self._first_stage_anchor_generator.generate(
+          feature_map_sizes)
 
     with slim.arg_scope(self._first_stage_box_predictor_arg_scope):
       rpn_box_predictor_features = []
@@ -1176,7 +1183,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
 
     cropped_regions = tf.concat(cropped_regions_list, axis=0)
     assigned_box_indices = tf.to_int32(tf.concat(assigned_box_indices_list, axis=0))
-
+    
     return tf.scatter_nd(
         assigned_box_indices,
         cropped_regions,
