@@ -10,7 +10,7 @@ on Cityscapes is supported.
 
 ## Requirements
 
-- [tensorflow (>= 1.2.0)](https://www.tensorflow.org/install/install_linux) with GPU support.
+- [tensorflow (>= 1.3.0)](https://www.tensorflow.org/install/install_linux) with GPU support.
   For best performance, building from source is highly recommended.
 - `pip install opencv-python`
 
