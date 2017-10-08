@@ -220,7 +220,7 @@ class MultipleGridAnchorGeneratorTest(tf.test.TestCase):
 
 class FpnAnchorGeneratorTest(tf.test.TestCase):
   def test_construct_pyramid(self):
-    scales = [0.125, 0.25, 0.5, 1.0, 2.0]
+    scales = [2.0, 1.0, 0.5, 0.25, 0.125]
 
     anchor_generator = ag.FpnAnchorGenerator(
         scales=scales,
@@ -229,11 +229,13 @@ class FpnAnchorGeneratorTest(tf.test.TestCase):
 
     self.assertEqual(len(anchor_generator.num_anchors_per_location()), 5)
 
+    anchor_strides=[(x, x) for x in [64, 32, 16, 8, 4]]
     feature_map_shape_list = [(16, 32), (32, 64), (64, 128),
                               (128, 256), (256, 512)]
 
     anchor_boxlist = anchor_generator.generate(
-        feature_map_shape_list=feature_map_shape_list)
+        feature_map_shape_list=feature_map_shape_list,
+        anchor_strides=anchor_strides)
     anchors = anchor_boxlist.get()
     areas = box_list_ops.area(anchor_boxlist)
 
@@ -243,15 +245,27 @@ class FpnAnchorGeneratorTest(tf.test.TestCase):
       expected_num_anchors = sum([h * w * 3 for h, w in feature_map_shape_list])
       self.assertEqual(expected_num_anchors, anchors_out.shape[0])
       prev_grid_elems = 0
-      for grid_size, scale in zip(feature_map_shape_list, scales):
+      for i, grid_size, scale in zip(range(5), feature_map_shape_list, scales):
         this_grid_elems = grid_size[0] * grid_size[1] * 3
-        self.assertAllClose(areas_out[prev_grid_elems: this_grid_elems + prev_grid_elems],
-                            np.array([(scale*256)**2] * this_grid_elems))
+        this_anchors_out = anchors_out[prev_grid_elems: this_grid_elems + prev_grid_elems]
+        this_areas_out = areas_out[prev_grid_elems: this_grid_elems + prev_grid_elems]
+        this_leftmost_corners = [this_anchors_out[1, :], this_anchors_out[4, :]]
+        s = anchor_strides[i][0] / 2
+        l = (256 * scale) / 2
+
+        expected_areas = np.array([(scale*256)**2] * this_grid_elems)
+        expected_leftmost_corners = np.array(
+             [[s - l, s - l, s + l, s + l],
+              [s - l, 3 * s - l, s + l, 3 * s + l]])
+
+        self.assertAllClose(this_areas_out, expected_areas, rtol=0.1, atol=0.1)
+        self.assertAllClose(this_leftmost_corners, expected_leftmost_corners)
+
         prev_grid_elems += this_grid_elems
 
   def test_assign_boxes_to_layers(self):
     anchor_generator = ag.FpnAnchorGenerator(
-        scales=[0.125, 0.25, 0.5, 1.0, 2.0],
+        scales=[2.0, 1.0, 0.5, 0.25, 0.125],
         aspect_ratios=[0.5, 1.0, 2.0],
         base_anchor_size=(256, 256))
 

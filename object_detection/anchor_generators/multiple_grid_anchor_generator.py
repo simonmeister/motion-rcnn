@@ -258,7 +258,7 @@ class FpnAnchorGenerator(MultipleGridAnchorGenerator):
       denominator = tf.log(tf.constant(2, dtype=numerator.dtype))
       return numerator / denominator
 
-    min_scale = self._base_anchor_size[0] * self._pyramid_scales[0]
+    min_scale = self._base_anchor_size[0] * min(self._pyramid_scales)
     box_scales = tf.sqrt(box_list_ops.area(box_list.BoxList(absolute_boxes)))
 
     max_k = len(self._pyramid_scales) - 1
@@ -266,3 +266,26 @@ class FpnAnchorGenerator(MultipleGridAnchorGenerator):
     k = tf.minimum(tf.maximum(k, 0), max_k)
 
     return tf.to_int32(k)
+
+
+if __name__ == '__main__':
+  #scales = [0.125, 0.25, 0.5, 1.0, 2.0]
+  scales = [2.0, 1.0, 0.5, 0.25, 0.125]
+  anchor_generator = FpnAnchorGenerator(
+      scales=scales,
+      aspect_ratios=[0.5, 1.0, 2.0],
+      base_anchor_size=(256, 256))
+  feature_map_shape_list = [(16, 32), (32, 64), (64, 128),
+                            (128, 256), (256, 512)]
+  anchors_boxlist = anchor_generator.generate(
+      feature_map_shape_list=feature_map_shape_list,
+      anchor_strides=[(x, x) for x in [64, 32, 16, 8, 4]])
+
+  clip_window = tf.to_float(tf.stack([0, 0, 1024, 2048]))
+  #anchors_boxlist, keep_indices = box_list_ops.prune_outside_window(
+  #    anchors_boxlist, clip_window)
+
+  anchors = anchors_boxlist.get()
+
+  with tf.Session():
+    print(anchors[0:100].eval())

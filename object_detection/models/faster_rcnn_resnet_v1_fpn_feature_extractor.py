@@ -13,10 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Resnet V1 Faster R-CNN implementation.
+"""Resnet FPN V1 Faster R-CNN implementation.
 
-See "Deep Residual Learning for Image Recognition" by He et al., 2015.
-https://arxiv.org/abs/1512.03385
+See "Feature Pyramid Networks for Object Detection" by Lin et al., 2017.
 
 Note: this implementation assumes that the classification checkpoint used
 to finetune this model is trained using the same configuration as that of
@@ -125,6 +124,10 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
     """
     channel_means = [123.68, 116.779, 103.939]
     return resized_inputs - [[channel_means]]
+
+  @property
+  def extracted_proposal_features_strides(self):
+    return [(x, x) for x in [64, 32, 16, 8, 4]]
 
   def _extract_proposal_features(self, preprocessed_inputs, scope):
     """Extracts first stage RPN features.
