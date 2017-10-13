@@ -47,12 +47,13 @@ def _read_flow(flow_fn):
   return out_flow
 
 
-def _read_image(filename):
-  "Read (h, w, 3) RGB image from .png."
+def _read_image(filename, rgb=False):
+  "Read (h, w, 3) image from .png."
   image = cv2.imread(filename, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
   h, w, _c = image.shape
   assert bgr.dtype == np.uint8 and _c == 3
-  image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+  if rgb:
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
   return image
 
 
@@ -65,113 +66,125 @@ def _read_depth(filename):
   return depth
 
 
-def _get_instance_masks_and_boxes_np(instance_img):
-    """Get instance level ground truth.
-
-    Note: instance_img is expected to consist of regular ids, not trainIds.
-
-    Returns:
-      masks: (m, h, w) numpy array
-      boxes: (m, 5), [[x1, y1, x2, y2], ...]
-      classes: (m,) list of class names
-    """
-    all_ids = np.unique(instance_img).tolist()
-    class_ids = [label.id for label in labels.labels]
-    pixel_ids_of_instances = [i for i in all_ids if i not in class_ids]
-
-    masks = []
-    cropped_masks = []
-    boxes = []
-    classes = []
-    for pixel_id in pixel_ids_of_instances:
-        class_id = pixel_id // 1000
-        class_name = labels.id2label[class_id].name
-
-        mask = instance_img == pixel_id
-        nonzero_y, nonzero_x = np.nonzero(np.squeeze(mask))
-        y1 = np.min(nonzero_y)
-        y2 = np.max(nonzero_y)
-        x1 = np.min(nonzero_x)
-        x2 = np.max(nonzero_x)
-
-        box = np.array([x1, y1, x2, y2], dtype=np.float64)
-        mask = mask.astype(np.uint8)[:, :, 0]
-
-        masks.append(mask)
-        boxes.append(box)
-        classes.append(class_name)
-
-    if len(boxes) > 0:
-        boxes = np.stack(boxes, axis=0)
-        masks = np.stack(masks, axis=0)
-    else:
-        boxes = np.zeros((0, 5))
-        masks = np.zeros((0, 0, 0))
-    return masks, boxes, classes
-
-
 def _get_record_filename(record_dir, shard_id, num_shards):
     output_filename = '{:05d}-of-{:05d}.record'.format(shard_id, num_shards - 1)
     return os.path.join(record_dir, output_filename)
 
 
 def _create_tfexample(label_map_dict,
-                      img_id, encoded_img, encoded_next_img, disparity_img, instance_img,
-                      camera, vehicle):
+                      image_id, image, next_image, depth, flow, segmentation,
+                      extrinsics_dict, next_extrinsics_dict,
+                      tracking_rows, next_tracking_rows,
+                      segmentation_color_map):
+  next_rows = {row['tid']: row for row in next_rows}
 
-    height, width = instance_img.shape[:2]
-    masks, boxes, classes_text = _get_instance_masks_and_boxes_np(instance_img)
-    num_instances = boxes.shape[0]
+  boxes = []
+  masks = []
+  classes = []
+  motions = []
+  for r in tracking_rows:
+    nr = next_tids.get(r['tid'])
+    label = r['label']
+    tid = r['tid']
+    # find out which color this object corresponds to in the segmentation image
+    seg_r, seg_g, seg_b = segmentation_color_map['{}:{}'.format(label, tid)]
+     # ensure object still tracked in next frame and visible in original frame
+    if nr is not None and label != 'DontCare':
+      box = np.array([r['t'], r['l'], r['b'], r['r']],
+                     dtype=np.float64)
+      boxes.append(box)
+      class_id = label_map_dict[label.lower()]
+      classes.append(class_id)
+      mask = segmentation[:, :, 0] == seg_r \
+          and segmentation[:, :, 1] == seg_g \
+          and segmentation[:, :, 2] == seg_b
+      mask = mask.astype(np.uint8)[:, :, 0]
+      masks.append(mask)
+      #w3d h3d l3d x3d y3d z3d ry rx rz
+      py = r['y3d']
+      px = r['x3d']
+      pz = r['z3d']
+      py_t = nr['y3d']
+      px_t = nr['x3d']
+      pz_t = nr['z3d']
+      if rows['moving']:
+        ry =
+        rx =
+        rz =
+        ty = py_t - py
+        tx = px_t - px
+        tz = pz_t - pz
+      else:
+        ry = 0.0
+        rx = 0.0
+        rz = 0.0
+        ty = 0.0
+        tx = 0.0
+        tz = 0.0
+      motion = np.array([py, px, pz, ry, rx, rz, ty, tx, tz]. dtype=np.float32)
+      motions.append(motion)
 
-    xmins = (boxes[:, 0] / width).tolist()
-    ymins = (boxes[:, 1] / height).tolist()
-    xmaxs = (boxes[:, 2] / width).tolist()
-    ymaxs = (boxes[:, 3] / height).tolist()
-    classes = [label_map_dict[text] for text in classes_text]
-    index_0, index_1, index_2 = np.nonzero(masks)
-    key = hashlib.sha256(encoded_img).hexdigest()
+  if len(boxes) > 0:
+      boxes = np.stack(boxes, axis=0)
+      masks = np.stack(masks, axis=0)
+      motions = np.stack(masks, axis=0)
+  else:
+      boxes = np.zeros((0, 5))
+      masks = np.zeros((0, 0, 0))
+      motions = np.zeros((0, 9))
 
-    example = tf.train.Example(features=tf.train.Features(feature={
-      'image/height': dataset_util.int64_feature(height),
-      'image/width': dataset_util.int64_feature(width),
-      'image/filename': dataset_util.bytes_feature(img_id.encode('utf8')),
-      'image/source_id': dataset_util.bytes_feature(img_id.encode('utf8')),
-      'image/encoded': dataset_util.bytes_feature(encoded_img),
-      'image/format': dataset_util.bytes_feature('png'.encode('utf8')),
-      'image/key/sha256': dataset_util.bytes_feature(key.encode('utf8')),
-      'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
-      'image/object/bbox/xmax': dataset_util.float_list_feature(xmaxs),
-      'image/object/bbox/ymin': dataset_util.float_list_feature(ymins),
-      'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
-      'image/object/class/label': dataset_util.int64_list_feature(classes),
-      'image/segmentation/object/count': dataset_util.int64_feature(num_instances),
-      'image/segmentation/object/index_0': dataset_util.int64_list_feature(index_0.tolist()),
-      'image/segmentation/object/index_1': dataset_util.int64_list_feature(index_1.tolist()),
-      'image/segmentation/object/index_2': dataset_util.int64_list_feature(index_2.tolist()),
-      'image/segmentation/object/class': dataset_util.int64_list_feature(classes),
-      'image/depth': dataset_util.bytes_feature(depth.tostring())
-    }))
-    return example, num_instances
+  height, width = image.shape[:2]
+  num_instances = boxes.shape[0]
+
+  ymins = (boxes[:, 0] / height).tolist()
+  xmins = (boxes[:, 1] / width).tolist()
+  ymaxs = (boxes[:, 2] / height).tolist()
+  xmaxs = (boxes[:, 3] / width).tolist()
+  index_0, index_1, index_2 = np.nonzero(masks)
+  encoded_image = cv2.imencode('png', image)
+  encoded_next_image = cv2.imencode('png', next_image)
+  key = hashlib.sha256(encoded_image).hexdigest()
+  extrinsics = np.reshape(
+      np.array(extrinsics_dict.values(), dtype=np.float32), [4, 4])
+
+  example = tf.train.Example(features=tf.train.Features(feature={
+    'image/height': dataset_util.int64_feature(height),
+    'image/width': dataset_util.int64_feature(width),
+    'image/filename': dataset_util.bytes_feature(image_id.encode('utf8')),
+    'image/source_id': dataset_util.bytes_feature(image_id.encode('utf8')),
+    'image/encoded': dataset_util.bytes_feature(encoded_image),
+    'next_image/encoded': dataset_util.bytes_feature(encoded_next_image),
+    'image/format': dataset_util.bytes_feature('png'.encode('utf8')),
+    'image/key/sha256': dataset_util.bytes_feature(key.encode('utf8')),
+    'image/object/bbox/xmin': dataset_util.float_list_feature(xmins),
+    'image/object/bbox/xmax': dataset_util.float_list_feature(xmaxs),
+    'image/object/bbox/ymin': dataset_util.float_list_feature(ymins),
+    'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
+    'image/object/class/label': dataset_util.int64_list_feature(classes),
+    'image/object/motion/py': dataset_util.float_list_feature(motions[:, 0].tolist()),
+    'image/object/motion/px': dataset_util.float_list_feature(motions[:, 1].tolist()),
+    'image/object/motion/pz': dataset_util.float_list_feature(motions[:, 2].tolist()),
+    'image/object/motion/ry': dataset_util.float_list_feature(motions[:, 3].tolist()),
+    'image/object/motion/rx': dataset_util.float_list_feature(motions[:, 4].tolist()),
+    'image/object/motion/rz': dataset_util.float_list_feature(motions[:, 5].tolist()),
+    'image/object/motion/ty': dataset_util.float_list_feature(motions[:, 6].tolist()),
+    'image/object/motion/tx': dataset_util.float_list_feature(motions[:, 7].tolist()),
+    'image/object/motion/tz': dataset_util.float_list_feature(motions[:, 8].tolist()),
+    'image/segmentation/object/count': dataset_util.int64_feature(num_instances),
+    'image/segmentation/object/index_0': dataset_util.int64_list_feature(index_0.tolist()),
+    'image/segmentation/object/index_1': dataset_util.int64_list_feature(index_1.tolist()),
+    'image/segmentation/object/index_2': dataset_util.int64_list_feature(index_2.tolist()),
+    'image/segmentation/object/class': dataset_util.int64_list_feature(classes),
+    'image/depth': dataset_util.bytes_feature(depth.tostring()),
+    'image/flow': dataset_util.bytes_feature(flow.tostring()),
+    'image/camera/motion': dataset_util.bytes_feature(camera_motion.tostring())
+  }))
+  return example, num_instances
 
 
-# 'image/id': _bytes_feature(img_id.encode('utf8')),
-# 'image/encoded': _bytes_feature(img.tostring()),
-# 'image/height': _int64_feature(height),
-# 'image/width': _int64_feature(width),
-# 'next_image/encoded': _bytes_feature(next_img.tostring()),
-# 'label/num_instances': _int64_feature(num_instances),
-# 'label/boxes': _bytes_feature(boxes.tostring()),
-# 'label/masks': _bytes_feature(masks.tostring()),
-# 'label/depth': _bytes_feature(depth.tostring()),
-# 'label/camera/intrinsics/f': _float_feature(f),
-# 'label/camera/intrinsics/x0': _float_feature(x0),
-# 'label/camera/intrinsics/y0': _float_feature(y0),
-# 'label/camera/motion/yaw': _float_feature(yaw),
-# 'label/camera/motion/translation': _float_feature(translation),
-
-
-def _write_tfrecord(record_dir, dataset_dir, split_name, is_training=False):
-  """Loads image files and writes files to a TFRecord.
+def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
+                    is_training=False):
+  """Loads images and ground truth to a TFRecord.
   Note: masks and bboxes will lose shape info after converting to string.
   """
   vkitti_prefix = 'vkitti_1.3.1_'
@@ -210,40 +223,57 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, is_training=False):
         seq_num, style_name, suffix = seq_filename_name.split('_')
         if style_name in styles:
           with open(seq_filename) as csvfile:
-            reader = csv.DictReader(csvfile)
-            seq = []
-            current_frame = 0
-            frame_rows = []
-            for row in reader:
-              if row.values()[frame_field] != current_frame:
-                current_frame += 1
-                seq.append(frame_rows)
-                del frame_rows[:]
-              frame_rows.append(row)
-            seqs.append(seq)
+            reader = csv.DictReader(csvfile, delimiter=' ')
+            if frame_field is None:
+              seqs.append([row for row in reader])
+            else:
+              seq = []
+              current_frame = 0
+              frame_rows = []
+              for row in reader:
+                if row.values()[frame_field] != current_frame:
+                  current_frame += 1
+                  seq.append(frame_rows)
+                  del frame_rows[:]
+                frame_rows.append(row)
+              seqs.append(seq)
     return seqs
 
   extrinsics_seqs = _collect_line_sequences('extrinsicsgt') # a seq consists of lists of rows
   tracking_seqs = _collect_line_sequences('motgt')
-  label_seqs = _collect_line_sequences('scenegt') # TODO this is not per-image!!
+  segmentation_color_map_seqs = _collect_line_sequences('scenegt', frame_field=None) # a seq is a list of rows
 
   def _seq_total_len(seqs, last_missing=False):
     return sum([len(seq) for seq in seqs])
 
   assert _seq_total_len(image_seqs) == _seq_total_len(depth_seqs) \
       == _seq_total_len(flow_seqs, True) == _seq_total_len(extrinsics_seqs) \
-      == _seq_total_len(tracking_seqs) == _seq_total_len(segmentation_seqs) \
-      == _seq_total_len(label_seqs)
+      == _seq_total_len(tracking_seqs) == _seq_total_len(segmentation_seqs)
+  assert len(label_seqs) == len(image_seqs)
+
+  segmentation_color_maps = []
+  for rows in segmentation_color_map_seqs:
+    color_map = {}
+    for row in rows:
+      key = row['Category(:id)']
+      val = [int(v) for v in [row['r'], row['g'], row['b']]]
+      color_map[key] = val
+    segmentation_color_maps.append(color_map)
+
 
   seq_lists = zip(image_seqs, depth_seqs, flow_seqs, segmentation_seqs,
-                  extrinsics_seqs, tracking_seqs, label_seqs)
+                  extrinsics_seqs, tracking_seqs)
   example_infos = []
-  for (image_seq, depth_seq, flow_seq, segmentation_seq,
-       extrinsics_seq, tracking_seq, label_seq) in seq_lists:
+  for seq_i, seq_list in enumerate(seq_lists):
+    (image_seq, depth_seq, flow_seq, segmentation_seq,
+     extrinsics_seq, tracking_seq) = seq_list
     for i in range(len(image_seq) - 1):
       example_infos.append(
-          (image_seq[i], image_seq[i + 1], depth_seq[i], flow_seq[i],
-           extrinsics_seq[i], tracking_seq[i], label_seq[i]))
+          (seq_i, i,
+           image_seq[i], image_seq[i + 1],
+           depth_seq[i], flow_seq[i], segmentation_seq[i],
+           extrinsics_seq[i], extrinsics_seq[i + 1],
+           tracking_seq[i], tracking_seq[i + 1]))
 
   if is_training:
     random.seed(0)
@@ -264,25 +294,29 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, is_training=False):
       end_ndx = min((shard_id + 1) * num_per_shard, len(example_infos))
 
       for i in range(start_ndx, end_ndx):
-        (image_fn, next_image_fn, depth_fn, flow_fn, extrinsics_rows,
-         tracking_rows, label_TODO) = example_infos[i]
+        (seq_id, frame_id,
+         image_fn, next_image_fn, depth_fn, flow_fn, segmentation_fn,
+         extrinsics_rows, next_extrinsics_rows,
+         tracking_rows, next_tracking_rows) = example_infos[i]
 
         if i % 1 == 0:
           sys.stdout.write('\r>> Converting image %d/%d shard %d\n' % (
               i + 1, len(example_infos), shard_id))
           sys.stdout.flush()
 
+        image_id = '{}_{}'.format(seq_id, frame_id)
         image = _read_image(image_fn)
         next_image = _read_image(next_image_fn)
-        depth = _read_image(depth_fn, False)
+        segmentation = _read_image(segmentation_fn, rgb=True)
+        depth = _read_depth(depth_fn)
         flow = _read_flow(flow_fn)
-        extrinsics_dict = extrinsics_rows[0]
-
 
         example, num_instances = _create_tfexample(
             label_map_dict,
-            image_id, image, next_image, depth, flow,
-            extrinsics_dict)
+            image_id, image, next_image, depth, flow, segmentation,
+            extrinsics_rows[0], next_extrinsics_rows[0],
+            tracking_rows, next_tracking_rows,
+            segmentation_color_maps[seq_id])
 
         if num_instances > 0 or is_training == False:
           created_count += 1
@@ -304,6 +338,7 @@ def main(_):
   set_name = FLAGS.set
   records_root = FLAGS.output_dir
   dataset_root = FLAGS.data_dir
+  label_map_dict = label_map_util.get_label_map_dict(FLAGS.label_map_path)
 
   assert set_name in ['train', 'val', 'mini'], set_name
   is_training = set_name in ['train', 'mini']
@@ -323,6 +358,7 @@ def main(_):
   _write_tfrecord(record_dir,
                   os.path.join(dataset_root, 'vkitti'),
                   split_name,
+                  label_map_dict,
                   is_training=is_training)
 
   print("\nFinished creating Virtual KITTI '{}' set".format(set_name))

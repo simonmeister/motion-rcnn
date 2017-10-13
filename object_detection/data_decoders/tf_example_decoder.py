@@ -87,6 +87,21 @@ class TfExampleDecoder(data_decoder.DataDecoder):
                 self._decode_instance_masks)),
         fields.InputDataFields.groundtruth_instance_classes: (
             slim_example_decoder.Tensor('image/segmentation/object/class')),
+        # Instance motion
+        fields.InputDataFields.groundtruth_instance_masks: (
+            slim_example_decoder.ItemHandlerCallback(
+                ['image/object/motion/py',
+                 'image/object/motion/px',
+                 'image/object/motion/pz',
+                 'image/object/motion/ry',
+                 'image/object/motion/rx',
+                 'image/object/motion/rz',
+                 'image/object/motion/ty',
+                 'image/object/motion/tx',
+                 'image/object/motion/tz',
+                 'image/segmentation/object/count',
+                 'image/height', 'image/width'],
+                self._decode_instance_motions)),
     }
 
   def decode(self, tf_example_string_tensor):
@@ -143,6 +158,40 @@ class TfExampleDecoder(data_decoder.DataDecoder):
 
     Returns:
       A 3-D boolean tensor of shape [num_instances, height, width].
+    """
+    height = keys_to_tensors['image/height']
+    width = keys_to_tensors['image/width']
+    num_instances = keys_to_tensors['image/segmentation/object/count']
+    index_0 = keys_to_tensors['image/segmentation/object/index_0']
+    index_1 = keys_to_tensors['image/segmentation/object/index_1']
+    index_2 = keys_to_tensors['image/segmentation/object/index_2']
+
+    if isinstance(index_0, tf.SparseTensor):
+      index_0 = tf.sparse_tensor_to_dense(index_0)
+    if isinstance(index_1, tf.SparseTensor):
+      index_1 = tf.sparse_tensor_to_dense(index_1)
+    if isinstance(index_2, tf.SparseTensor):
+      index_2 = tf.sparse_tensor_to_dense(index_2)
+
+    sparse_indices = tf.stack([index_0, index_1, index_2], axis=1)
+    output_shape = tf.stack([num_instances, height, width])
+
+    masks = tf.sparse_to_dense(sparse_indices=sparse_indices,
+                               output_shape=output_shape,
+                               sparse_values=1)
+    return tf.cast(masks, tf.bool)
+
+  def _decode_instance_motions(self, keys_to_tensors): # TODO
+    """Decode instance segmentation masks from sparse indices.
+
+    The instance segmentation masks are reshaped to [num_instances, height,
+    width] and cast to boolean type to save memory.
+
+    Args:
+      keys_to_tensors: a dictionary from keys to tensors.
+
+    Returns:
+      A 3-D boolean tensor of shape [num_instances, 9].
     """
     height = keys_to_tensors['image/height']
     width = keys_to_tensors['image/width']
