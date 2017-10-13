@@ -24,24 +24,45 @@ flags = tf.app.flags
 flags.DEFINE_string('data_dir', '', 'Root directory for datasets.')
 flags.DEFINE_string('set', 'train', 'Create train, val or test set')
 flags.DEFINE_string('output_dir', '', 'Root directory for TFRecords')
-flags.DEFINE_string('label_map_path', 'data/cityscapes_label_map.pbtxt',
+flags.DEFINE_string('label_map_path', 'data/vkitti_label_map.pbtxt',
                     'Path to label map proto')
 flags.DEFINE_integer('examples_per_tfrecord', 100,
                      'How many examples per out file')
 FLAGS = flags.FLAGS
 
 
-def _read_raw(paths):
-    path_queue = tf.train.string_input_producer(
-        paths, shuffle=False, capacity=len(paths), num_epochs=1)
-    reader = tf.WholeFileReader()
-    _, raw = reader.read(path_queue)
-    return raw
+def _read_flow(flow_fn):
+  "Convert from .png to (h, w, 2) (flow_x, flow_y) float32 array"
+  # read png to bgr in 16 bit unsigned short
+  bgr = cv2.imread(flow_fn, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+  h, w, _c = bgr.shape
+  assert bgr.dtype == np.uint16 and _c == 3
+  # b == invalid flow flag == 0 for sky or other invalid flow
+  invalid = bgr[..., 0] == 0
+  # g,r == flow_y,x normalized by height,width and scaled to [0;2**16 - 1]
+  out_flow = 2.0 / (2**16 - 1.0) * bgr[..., 2:0:-1].astype('f4') - 1
+  out_flow[..., 0] *= w - 1
+  out_flow[..., 1] *= h - 1
+  out_flow[invalid] = np.nan # 0 or another value (e.g., np.nan)
+  return out_flow
 
 
-def _read_image(paths, dtype, channels=1):
-    raw = _read_raw(paths)
-    return tf.image.decode_png(raw, channels=channels, dtype=dtype)
+def _read_image(filename):
+  "Read (h, w, 3) RGB image from .png."
+  image = cv2.imread(filename, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+  h, w, _c = image.shape
+  assert bgr.dtype == np.uint8 and _c == 3
+  image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+  return image
+
+
+def _read_depth(filename):
+  "Read (h, w, 1) float32 depth (in meters) from .png."
+  image = cv2.imread(filename, cv2.IMREAD_ANYCOLOR | cv2.IMREAD_ANYDEPTH)
+  h, w, _c = image.shape
+  assert image.dtype == np.uint16 and _c == 1
+  depth = image.astype(np.float32) / 100.0
+  return depth
 
 
 def _get_instance_masks_and_boxes_np(instance_img):
@@ -94,32 +115,9 @@ def _get_record_filename(record_dir, shard_id, num_shards):
     return os.path.join(record_dir, output_filename)
 
 
-def _collect_files(modality_dir):
-    paths = []
-    for city_name in sorted(os.listdir(modality_dir)):
-        city_dir = os.path.join(modality_dir, city_name)
-        for i, filename in enumerate(sorted(os.listdir(city_dir))):
-            path = os.path.join(city_dir, filename)
-            paths.append(path)
-    return paths
-
-
 def _create_tfexample(label_map_dict,
                       img_id, encoded_img, encoded_next_img, disparity_img, instance_img,
                       camera, vehicle):
-    #b = camera['extrinsic']['baseline']
-    #f = (camera['intrinsic']['fx'] + camera['intrinsic']['fy']) / 2.
-    #disparity = (disparity_img.astype(np.float32) - 1.) / 256.
-    #depth = b * f / disparity
-    #depth[disparity_img == 0] = 0
-    #x0 = camera['intrinsic']['u0']
-    #y0 = camera['intrinsic']['v0']
-    # TODO variable for seqs of variable offset... use sequence info to get more exact
-    #frame_rate = 8.5
-    # TODO calc from sequence data for more precise info when skipping frames - e.g. avg.
-    # TODO do we have to use the camera extrinsics to get exact translation / yaw?
-    #yaw = vehicle['yawRate'] / frame_rate
-    #translation = vehicle['speed'] / frame_rate
 
     height, width = instance_img.shape[:2]
     masks, boxes, classes_text = _get_instance_masks_and_boxes_np(instance_img)
@@ -154,6 +152,7 @@ def _create_tfexample(label_map_dict,
       'image/depth': dataset_util.bytes_feature(depth.tostring())
     }))
     return example, num_instances
+
 
 # 'image/id': _bytes_feature(img_id.encode('utf8')),
 # 'image/encoded': _bytes_feature(img.tostring()),
@@ -274,15 +273,16 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, is_training=False):
           sys.stdout.flush()
 
         image = _read_image(image_fn)
-        next_image = _read_
+        next_image = _read_image(next_image_fn)
+        depth = _read_image(depth_fn, False)
+        flow = _read_flow(flow_fn)
+        extrinsics_dict = extrinsics_rows[0]
 
-        with open(vehicle_paths[i]) as vehicle_file:
-          vehicle = json.load(vehicle_file)
 
         example, num_instances = _create_tfexample(
             label_map_dict,
-            img_id, img, next_img, disparity_img,
-            instance_img, camera, vehicle)
+            image_id, image, next_image, depth, flow,
+            extrinsics_dict)
 
         if num_instances > 0 or is_training == False:
           created_count += 1
