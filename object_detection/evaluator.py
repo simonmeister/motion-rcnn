@@ -49,7 +49,7 @@ def _extract_prediction_tensors(model,
     tensor_dict: A tensor dictionary with evaluations.
   """
   input_dict = create_input_dict_fn()
-  prefetch_queue = prefetcher.prefetch(input_dict, capacity=500)
+  prefetch_queue = prefetcher.prefetch(input_dict, capacity=500) # TODO
   input_dict = prefetch_queue.dequeue()
   original_image = tf.expand_dims(input_dict[fields.InputDataFields.image], 0)
   preprocessed_image = model.preprocess(tf.to_float(original_image))

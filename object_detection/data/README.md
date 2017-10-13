@@ -21,9 +21,9 @@ python eval.py \
 
 
 
-python train.py --logtostderr --pipeline_config_path=data/configs/mask_rcnn_resnet50_cityscapes.config --train_dir=output/train/mask_rcnn --gpu 0
+python train.py --logtostderr --pipeline_config_path=data/configs/mask_rcnn_resnet50_fpn_cityscapes.config --train_dir=output/train/mask_rcnn_fpn --gpu 0
 
-python eval.py --logtostderr --pipeline_config_path=data/configs/mask_rcnn_resnet50_cityscapes.config --checkpoint_dir=output/train/mask_rcnn --eval_dir=output/eval/mask_rcnn
+python eval.py --logtostderr --pipeline_config_path=data/configs/mask_rcnn_resnet50_fpn_cityscapes.config --checkpoint_dir=output/train/mask_rcnn_fpn --eval_dir=output/eval/mask_rcnn_fpn
 
 
 modified tests:

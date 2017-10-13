@@ -514,7 +514,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
     # The Faster R-CNN paper recommends pruning anchors that venture outside
     # the image window at training time and clipping at inference time.
     clip_window = tf.to_float(tf.stack([0, 0, image_shape[1], image_shape[2]]))
-    if self._is_training:
+    clip = False
+    if self._is_training and clip:
       (rpn_box_encodings, rpn_objectness_predictions_with_background,
        anchors_boxlist) = self._remove_invalid_anchors_and_predictions(
            rpn_box_encodings, rpn_objectness_predictions_with_background,
@@ -1183,7 +1184,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
 
     cropped_regions = tf.concat(cropped_regions_list, axis=0)
     assigned_box_indices = tf.to_int32(tf.concat(assigned_box_indices_list, axis=0))
-    
+
     return tf.scatter_nd(
         assigned_box_indices,
         cropped_regions,
