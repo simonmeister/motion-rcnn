@@ -183,7 +183,7 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
         P6 = resnet_utils.subsample(P5, 2)
         pyramid = [P6, P5]
 
-        for c in range(4, 1, -1):
+        for c in [4, 3, 2]:
             this_C = end_points[scope_prefix + handles_map['C{}'.format(c)]]
             prev_P = pyramid[-1]
 

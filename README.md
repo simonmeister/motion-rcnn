@@ -1,7 +1,7 @@
 # Motion R-CNN
 
 This repository contains the original
-[TensorFlow](https://tensorflow.org) 
+[TensorFlow](https://tensorflow.org)
 implementation of
 [Motion R-CNN](TODO).
 As a baseline, training of
@@ -11,9 +11,8 @@ on Cityscapes is supported.
 ## Requirements
 
 - [tensorflow (>= 1.3.0)](https://www.tensorflow.org/install/install_linux) with GPU support.
-  For best performance, building from source is highly recommended.
-- `pip install opencv-python`
+- `pip install opencv-python pandas`
 
 ## Acknowledgments
-This repository is based on the 
+This repository is based on the
 [Tensorflow Object Detection API](https://github.com/tensorflow/models/tree/master/research/object_detection).
