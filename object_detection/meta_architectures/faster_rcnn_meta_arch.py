@@ -628,6 +628,11 @@ class FasterRCNNMetaArch(model.DetectionModel):
           box_predictions[box_predictor.MASK_PREDICTIONS], axis=1)
       prediction_dict['mask_predictions'] = mask_predictions
 
+    if box_predictor.MOTION_PREDICTIONS in box_predictions:
+      motion_predictions = tf.squeeze(
+          box_predictions[box_predictor.MOTION_PREDICTIONS], axis=1)
+      prediction_dict['motion_predictions'] = motion_predictions
+
     return prediction_dict
 
   def _extract_rpn_feature_maps(self, preprocessed_inputs):
@@ -847,13 +852,15 @@ class FasterRCNNMetaArch(model.DetectionModel):
         }
     with tf.name_scope('SecondStagePostprocessor'):
       mask_predictions = prediction_dict.get(box_predictor.MASK_PREDICTIONS)
+      motion_predictions = prediction_dict.get(box_predictor.MOTION_PREDICTIONS)
       detections_dict = self._postprocess_box_classifier(
           prediction_dict['refined_box_encodings'],
           prediction_dict['class_predictions_with_background'],
           prediction_dict['proposal_boxes'],
           prediction_dict['num_proposals'],
           image_shape,
-          mask_predictions=mask_predictions)
+          mask_predictions=mask_predictions,
+          motion_predictions=motion_predictions)
       return detections_dict
 
   def _postprocess_rpn(self,
@@ -1197,6 +1204,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
                                   num_proposals,
                                   image_shape,
                                   mask_predictions=None,
+                                  motion_predictions=None,
                                   mask_threshold=0.5):
     """Converts predictions from the second stage box classifier to detections.
 
@@ -1217,6 +1225,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
       mask_predictions: (optional) a 4-D tensor with shape
         [total_num_padded_proposals, num_classes, mask_height, mask_width]
         containing instance mask predictions.
+      motion_predictions: (optional) a 4-D tensor with shape
+        [total_num_padded_proposals, num_classes, 9]
+        containing instance motion predictions.
       mask_threshold: a scalar threshold determining which mask values are
         rounded to 0 or 1.
 
@@ -1255,14 +1266,15 @@ class FasterRCNNMetaArch(model.DetectionModel):
       mask_predictions_batch = tf.reshape(
           mask_predictions, [-1, self.max_num_proposals,
                              self.num_classes, mask_height, mask_width])
-    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
      num_detections) = self._second_stage_nms_fn(
          refined_decoded_boxes_batch,
          class_predictions_batch,
          clip_window=clip_window,
          change_coordinate_frame=True,
          num_valid_boxes=num_proposals,
-         masks=mask_predictions_batch)
+         masks=mask_predictions_batch,
+         motions=motion_predictions_batch) # TODO motion_predictions_batch
     detections = {'detection_boxes': nmsed_boxes,
                   'detection_scores': nmsed_scores,
                   'detection_classes': nmsed_classes,

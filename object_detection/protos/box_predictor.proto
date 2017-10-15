@@ -83,6 +83,8 @@ message MaskRCNNBoxPredictor {
 
   // Whether to use FPN style for the fully connected branch.
   optional bool fpn_fc_branch = 10 [default = false];
+
+  optional bool predict_instance_motions = 11 [default = false];
 }
 
 message RfcnBoxPredictor {

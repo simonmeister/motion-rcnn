@@ -37,6 +37,7 @@ slim = tf.contrib.slim
 BOX_ENCODINGS = 'box_encodings'
 CLASS_PREDICTIONS_WITH_BACKGROUND = 'class_predictions_with_background'
 MASK_PREDICTIONS = 'mask_predictions'
+MOTION_PREDICTIONS = 'motion_predictions'
 
 
 class BoxPredictor(object):
@@ -281,7 +282,8 @@ class MaskRCNNBoxPredictor(BoxPredictor):
                mask_prediction_conv_depth=256,
                num_layers_before_mask_prediction=0,
                predict_keypoints=False,
-               fpn_fc_branch=False):
+               fpn_fc_branch=False,
+               predict_instance_motions=False):
     """Constructor.
 
     Args:
@@ -310,6 +312,7 @@ class MaskRCNNBoxPredictor(BoxPredictor):
         before the final upsampling.
       fpn_fc_branch: Whether to use FPN style for the fully connected branch.
         See the paper, Figure 3.
+      predict_instance_motions: Whether to predict 3d object motions.
 
     Raises:
       ValueError: If predict_instance_masks or predict_keypoints is true.
@@ -325,6 +328,8 @@ class MaskRCNNBoxPredictor(BoxPredictor):
     self._num_layers_before_mask_prediction = num_layers_before_mask_prediction
     self._predict_keypoints = predict_keypoints
     self._fpn_fc_branch = fpn_fc_branch
+    self._predict_instance_motions = predict_instance_motions
+    self._num_motion_params = 9 # TODO put this number somewhere else
     if self._predict_keypoints:
       raise ValueError('Keypoint prediction is unimplemented.')
     if ((self._predict_instance_masks or self._predict_keypoints) and
@@ -360,11 +365,14 @@ class MaskRCNNBoxPredictor(BoxPredictor):
         class_predictions_with_background: A float tensor of shape
           [batch_size, 1, num_classes + 1] representing the class
           predictions for the proposals.
-      If predict_masks is True the dictionary also contains:
-        instance_masks: A float tensor of shape
+      If predict_instance_masks is True the dictionary also contains:
+        mask_predictions: A float tensor of shape
           [batch_size, 1, num_classes, image_height, image_width]
       If predict_keypoints is True the dictionary also contains:
         keypoints: [batch_size, 1, num_keypoints, 2]
+      If predict_instance_motions is True the dictionary also contains:
+        motion_predictions: A float tensor of shape
+          [batch_size, 1, num_classes, _num_motion_params]
 
     Raises:
       ValueError: if num_predictions_per_location is not 1.
@@ -440,6 +448,18 @@ class MaskRCNNBoxPredictor(BoxPredictor):
                                         axis=1,
                                         name='MaskPredictor')
       predictions_dict[MASK_PREDICTIONS] = instance_masks
+
+    if self._predict_instance_motions:
+      with slim.arg_scope(self._fc_hyperparams):
+        motion_predictions = slim.fully_connected(
+            flattened_image_features,
+            self._num_classes * self._num_motion_params,
+            activation_fn=None,
+            scope='MotionPredictor')
+        instance_motions = tf.reshape(
+            instance_motions, [-1, 1, self._num_classes, self._num_motion_params])
+      predictions_dict[MOTION_PREDICTIONS] = motion_predictions
+
     return predictions_dict
 
 

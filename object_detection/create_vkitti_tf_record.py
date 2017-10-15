@@ -10,7 +10,7 @@ import math
 import random
 import cv2
 import hashlib
-import csv
+import pandas as pd
 
 import numpy as np
 import tensorflow as tf
@@ -71,6 +71,19 @@ def _get_record_filename(record_dir, shard_id, num_shards):
     return os.path.join(record_dir, output_filename)
 
 
+def _euler_to_rot(x, y, z):
+  rot_x = np.array([[np.cos(x), -np.sin(x), 0],
+                    [np.sin(x), np.cos(x), 0],
+                    [0, 0, 1]])
+  rot_y = np.array([[np.cos(y), 0, np.sin(y)],
+                    [0, 1, 0],
+                    [-np.sin(y), 0, cos(y)]])
+  rot_z = np.array([[1, 0, 0],
+                    [0, np.cos(z), -np.sin(z)],
+                    [0, np.sin(z), np.cos(z)]])
+  return rot_y * rot_x * rot_z
+
+
 def _create_tfexample(label_map_dict,
                       image_id, image, next_image, depth, flow, segmentation,
                       extrinsics_dict, next_extrinsics_dict,
@@ -78,19 +91,33 @@ def _create_tfexample(label_map_dict,
                       segmentation_color_map):
   next_rows = {row['tid']: row for row in next_rows}
 
+  extrinsics = np.reshape(
+      np.array(extrinsics_dict.values(), dtype=np.float32), [4, 4])
+  next_extrinsics = np.reshape(
+      np.array(next_extrinsics_dict.values(), dtype=np.float32), [4, 4])
+  rot_cam1 = extrinsics[:3, :3]
+  rot_cam2 = next_extrinsics[:3, :3]
+  trans_world_to_cam1 = extrinsics[:, 3]
+  trans_world_to_cam2 = next_extrinsics[:, 3]
+  rot_cam2_to_cam1 = rot_cam1 @ rot_cam2.T
+  rot_cam1_to_cam2 = rot_cam2_to_cam1.T
+  trans_cam1_to_cam2 = trans_cam2 - rot_cam1_to_cam2 * trans_cam1
+  camera_motion = np.concatenate([rot_cam1_to_cam2.ravel(),
+                                  trans_cam1_to_cam2.ravel()])
+
   boxes = []
   masks = []
   classes = []
   motions = []
-  for r in tracking_rows:
-    nr = next_tids.get(r['tid'])
+  for row in tracking_rows:
+    next_row = next_rows.get(r['tid'])
     label = r['label']
     tid = r['tid']
     # find out which color this object corresponds to in the segmentation image
     seg_r, seg_g, seg_b = segmentation_color_map['{}:{}'.format(label, tid)]
      # ensure object still tracked in next frame and visible in original frame
-    if nr is not None and label != 'DontCare':
-      box = np.array([r['t'], r['l'], r['b'], r['r']],
+    if next_row is not None and label != 'DontCare':
+      box = np.array([row['t'], row['l'], row['b'], row['r']],
                      dtype=np.float64)
       boxes.append(box)
       class_id = label_map_dict[label.lower()]
@@ -101,29 +128,22 @@ def _create_tfexample(label_map_dict,
       mask = mask.astype(np.uint8)[:, :, 0]
       masks.append(mask)
       #w3d h3d l3d x3d y3d z3d ry rx rz
-      py = r['y3d']
-      px = r['x3d']
-      pz = r['z3d']
-      py_t = nr['y3d']
-      px_t = nr['x3d']
-      pz_t = nr['z3d']
-      if rows['moving']:
-        ry =
-        rx =
-        rz =
-        ty = py_t - py
-        tx = px_t - px
-        tz = pz_t - pz
+      p1 = np.array([row['x3d'], row['y3d'], row['z3d']])
+      if rows['moving'] == 1:
+        r1 = euler_to_rot(row['rx'] row['ry'], row['rz'])
+        r2_cam2 = euler_to_rot(next_row['rx'] next_row['ry'], next_row['rz'])
+        r2 = rot_cam2_to_cam1 @ r2_cam2
+        r1_to_r2 = r2 @ r1.T
+        p2 = np.array([next_row['x3d'], next_row['y3d'], next_row['z3d']])
+        p2_hom = np.concatenate(p2, np.array([1]))
+        p2_cam1_hom = extrinsics * next_extrinsics * p2_hom
+        p2_cam1 = p2_cam1_hom[:3] / p2_cam1_hom[3]
+        p1_to_p2 = p2_cam1 - p1
       else:
-        ry = 0.0
-        rx = 0.0
-        rz = 0.0
-        ty = 0.0
-        tx = 0.0
-        tz = 0.0
-      motion = np.array([py, px, pz, ry, rx, rz, ty, tx, tz]. dtype=np.float32)
+        r1_to_r2 = np.zeros([3, 3], dtype=np.float32)
+        p1_to_p2
+      motion = np.concatenate([r1_to_r2.ravel(), p1_to_p2, p1])
       motions.append(motion)
-
   if len(boxes) > 0:
       boxes = np.stack(boxes, axis=0)
       masks = np.stack(masks, axis=0)
@@ -144,8 +164,7 @@ def _create_tfexample(label_map_dict,
   encoded_image = cv2.imencode('png', image)
   encoded_next_image = cv2.imencode('png', next_image)
   key = hashlib.sha256(encoded_image).hexdigest()
-  extrinsics = np.reshape(
-      np.array(extrinsics_dict.values(), dtype=np.float32), [4, 4])
+
 
   example = tf.train.Example(features=tf.train.Features(feature={
     'image/height': dataset_util.int64_feature(height),
@@ -161,15 +180,7 @@ def _create_tfexample(label_map_dict,
     'image/object/bbox/ymin': dataset_util.float_list_feature(ymins),
     'image/object/bbox/ymax': dataset_util.float_list_feature(ymaxs),
     'image/object/class/label': dataset_util.int64_list_feature(classes),
-    'image/object/motion/py': dataset_util.float_list_feature(motions[:, 0].tolist()),
-    'image/object/motion/px': dataset_util.float_list_feature(motions[:, 1].tolist()),
-    'image/object/motion/pz': dataset_util.float_list_feature(motions[:, 2].tolist()),
-    'image/object/motion/ry': dataset_util.float_list_feature(motions[:, 3].tolist()),
-    'image/object/motion/rx': dataset_util.float_list_feature(motions[:, 4].tolist()),
-    'image/object/motion/rz': dataset_util.float_list_feature(motions[:, 5].tolist()),
-    'image/object/motion/ty': dataset_util.float_list_feature(motions[:, 6].tolist()),
-    'image/object/motion/tx': dataset_util.float_list_feature(motions[:, 7].tolist()),
-    'image/object/motion/tz': dataset_util.float_list_feature(motions[:, 8].tolist()),
+    'image/object/motion': dataset_util.bytes_feature(motions.tolist()),
     'image/segmentation/object/count': dataset_util.int64_feature(num_instances),
     'image/segmentation/object/index_0': dataset_util.int64_list_feature(index_0.tolist()),
     'image/segmentation/object/index_1': dataset_util.int64_list_feature(index_1.tolist()),
@@ -177,7 +188,7 @@ def _create_tfexample(label_map_dict,
     'image/segmentation/object/class': dataset_util.int64_list_feature(classes),
     'image/depth': dataset_util.bytes_feature(depth.tostring()),
     'image/flow': dataset_util.bytes_feature(flow.tostring()),
-    'image/camera/motion': dataset_util.bytes_feature(camera_motion.tostring())
+    'image/camera/motion': dataset_util.float_list_feature(camera_motion.tolist())
   }))
   return example, num_instances
 
@@ -214,6 +225,10 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
   segmentation_seqs = _collect_image_sequences('scenegt')
 
   def _collect_line_sequences(suffix, frame_field=0):
+    """If frame_field=None, returns a list containing a list of rows for each file.
+    Otherwise, returns (a list containing) one list per sequence/file,
+    each containing one list of rows for each frame in the sequence.
+    A row is stored as orderect dict."""
     type_dir = os.path.join(dataset_dir, vkitti_prefix + suffix)
     seqs = []
     for seq_name in sorted(os.listdir(type_dir)):
@@ -223,15 +238,20 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
         seq_num, style_name, suffix = seq_filename_name.split('_')
         if style_name in styles:
           with open(seq_filename) as csvfile:
-            reader = csv.DictReader(csvfile, delimiter=' ')
+            data_frame = pd.read_csv(csvfile, sep=' ', index_col=False)
+            rows = []
+            for nt in data_frame.itertuples():
+              od = nt._asdict()
+              del od['Index']
+              rows.append(od)
             if frame_field is None:
-              seqs.append([row for row in reader])
+              seqs.append(rows)
             else:
               seq = []
               current_frame = 0
               frame_rows = []
-              for row in reader:
-                if row.values()[frame_field] != current_frame:
+              for row in rows:
+                if list(row.values())[frame_field] != current_frame:
                   current_frame += 1
                   seq.append(frame_rows)
                   del frame_rows[:]
@@ -239,9 +259,9 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
               seqs.append(seq)
     return seqs
 
-  extrinsics_seqs = _collect_line_sequences('extrinsicsgt') # a seq consists of lists of rows
+  extrinsics_seqs = _collect_line_sequences('extrinsicsgt')
   tracking_seqs = _collect_line_sequences('motgt')
-  segmentation_color_map_seqs = _collect_line_sequences('scenegt', frame_field=None) # a seq is a list of rows
+  segmentation_color_map_seqs = _collect_line_sequences('scenegt', frame_field=None)
 
   def _seq_total_len(seqs, last_missing=False):
     return sum([len(seq) for seq in seqs])

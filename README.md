@@ -11,7 +11,7 @@ on Cityscapes is supported.
 ## Requirements
 
 - [tensorflow (>= 1.3.0)](https://www.tensorflow.org/install/install_linux) with GPU support.
-- `pip install opencv-python`
+- `pip install opencv-python pandas`
 
 ## Acknowledgments
 This repository is based on the

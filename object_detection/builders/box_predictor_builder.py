@@ -88,7 +88,9 @@ def build(argscope_fn, box_predictor_config, is_training, num_classes):
         num_layers_before_mask_prediction=(mask_rcnn_box_predictor.
                                            num_layers_before_mask_prediction),
         predict_keypoints=mask_rcnn_box_predictor.predict_keypoints,
-        fpn_fc_branch=mask_rcnn_box_predictor.fpn_fc_branch)
+        fpn_fc_branch=mask_rcnn_box_predictor.fpn_fc_branch,
+        predict_instance_motions=(mask_rcnn_box_predictor
+                                  .predict_instance_motions))
     return box_predictor_object
 
   if box_predictor_oneof == 'rfcn_box_predictor':

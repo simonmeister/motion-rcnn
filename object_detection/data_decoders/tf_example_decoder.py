@@ -18,6 +18,7 @@
 A decoder to decode string tensors containing serialized tensorflow.Example
 protos for object detection.
 """
+import functools
 import tensorflow as tf
 
 from object_detection.core import data_decoder
@@ -53,7 +54,12 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         'image/segmentation/object/index_1': tf.VarLenFeature(tf.int64),
         'image/segmentation/object/index_2': tf.VarLenFeature(tf.int64),
         'image/segmentation/object/class': tf.VarLenFeature(tf.int64),
-        'image/segmentation/object/count': tf.FixedLenFeature((), tf.int64, 1)
+        'image/segmentation/object/count': tf.FixedLenFeature((), tf.int64, 1),
+        # Motion R-CNN
+        'image/camera/motion': tf.FixedLenFeature((), tf.float32, 12),
+        'image/object/motion': tf.VarLenFeature((), tf.float32),
+        'image/object/motion': tf.VarLenFeature((), tf.float32),
+
     }
     self.items_to_handlers = {
         fields.InputDataFields.image: slim_example_decoder.Image(
@@ -87,21 +93,22 @@ class TfExampleDecoder(data_decoder.DataDecoder):
                 self._decode_instance_masks)),
         fields.InputDataFields.groundtruth_instance_classes: (
             slim_example_decoder.Tensor('image/segmentation/object/class')),
-        # Instance motion
-        fields.InputDataFields.groundtruth_instance_masks: (
+        # Motion R-CNN
+        fields.InputDataFields.groundtruth_camera_motion: (
+            slim_example_decoder.Tensor('image/camera/motion')),
+        fields.InputDataFields.groundtruth_motions: (
             slim_example_decoder.ItemHandlerCallback(
-                ['image/object/motion/py',
-                 'image/object/motion/px',
-                 'image/object/motion/pz',
-                 'image/object/motion/ry',
-                 'image/object/motion/rx',
-                 'image/object/motion/rz',
-                 'image/object/motion/ty',
-                 'image/object/motion/tx',
-                 'image/object/motion/tz',
-                 'image/segmentation/object/count',
-                 'image/height', 'image/width'],
-                self._decode_instance_motions)),
+                ['image/object/motion', 'image/segmentation/object/count'],
+                self._decode_instance_motions))),
+        fields.InputDataFields.groundtruth_depth: (
+            slim_example_decoder.ItemHandlerCallback(
+                ['image/depth', 'image/height', 'image/width'],
+                self._decode_depth))),
+        fields.InputDataFields.groundtruth_flow: (
+            slim_example_decoder.ItemHandlerCallback(
+                ['image/flow', 'image/height', 'image/width'],
+                self._decode_flow))),
+
     }
 
   def decode(self, tf_example_string_tensor):
@@ -181,36 +188,19 @@ class TfExampleDecoder(data_decoder.DataDecoder):
                                sparse_values=1)
     return tf.cast(masks, tf.bool)
 
-  def _decode_instance_motions(self, keys_to_tensors): # TODO
-    """Decode instance segmentation masks from sparse indices.
-
-    The instance segmentation masks are reshaped to [num_instances, height,
-    width] and cast to boolean type to save memory.
-
-    Args:
-      keys_to_tensors: a dictionary from keys to tensors.
-
-    Returns:
-      A 3-D boolean tensor of shape [num_instances, 9].
-    """
+  def _decode_depth(self, keys_to_tensors):
     height = keys_to_tensors['image/height']
     width = keys_to_tensors['image/width']
+    depth = tf.decode_raw(keys_to_tensors['image/depth'], tf.float32)
+    return tf.reshape(depth, [height, width, 1])
+
+  def _decode_flow(self, keys_to_tensors):
+    height = keys_to_tensors['image/height']
+    width = keys_to_tensors['image/width']
+    flow = tf.decode_raw(keys_to_tensors['image/flow'], tf.float32)
+    return tf.reshape(flow, [height, width, 2])
+
+  def _decode_instance_motions(self, keys_to_tensors):
     num_instances = keys_to_tensors['image/segmentation/object/count']
-    index_0 = keys_to_tensors['image/segmentation/object/index_0']
-    index_1 = keys_to_tensors['image/segmentation/object/index_1']
-    index_2 = keys_to_tensors['image/segmentation/object/index_2']
-
-    if isinstance(index_0, tf.SparseTensor):
-      index_0 = tf.sparse_tensor_to_dense(index_0)
-    if isinstance(index_1, tf.SparseTensor):
-      index_1 = tf.sparse_tensor_to_dense(index_1)
-    if isinstance(index_2, tf.SparseTensor):
-      index_2 = tf.sparse_tensor_to_dense(index_2)
-
-    sparse_indices = tf.stack([index_0, index_1, index_2], axis=1)
-    output_shape = tf.stack([num_instances, height, width])
-
-    masks = tf.sparse_to_dense(sparse_indices=sparse_indices,
-                               output_shape=output_shape,
-                               sparse_values=1)
-    return tf.cast(masks, tf.bool)
+    motions = tf.decode_raw(keys_to_tensors['image/object/motion'], tf.float32)
+    return tf.reshape(motions, [num_instances, 15])
