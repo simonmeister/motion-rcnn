@@ -72,7 +72,8 @@ class InputDataFields(object):
   groundtruth_keypoint_visibilities = 'groundtruth_keypoint_visibilities'
   groundtruth_label_scores = 'groundtruth_label_scores'
   # Motion R-CNN
-  groundtruth_motions = 'groundtruth_motions'
+  next_image = 'next_image'
+  groundtruth_instance_motions = 'groundtruth_instance_motions'
   groundtruth_camera_motion = 'groundtruth_camera_motion'
   camera_intrinsics = 'camera_intrinsics'
   groundtruth_depth = 'groundtruth_depth'

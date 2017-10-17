@@ -25,8 +25,8 @@ def _3d_to_pixels(points, camera_intrinsics):
     return x, y
 
 
-def motion_to_dense_flow(depth, motions, masks, camera_motion,
-                         camera_intrinsics):
+def dense_flow_from_motion(depth, motions, masks, camera_motion,
+                           camera_intrinsics):
   """Compute optical flow map from depth and motion data.
 
   Args:
@@ -41,6 +41,7 @@ def motion_to_dense_flow(depth, motions, masks, camera_motion,
     in x and y directions.
   """
   h, w = depth.shape[:2]
+  depth = depth[:, :, 0]
   x_range = np.linspace(0, w - 1, w)
   y_range = np.linspace(0, h - 1, h)
 
@@ -49,11 +50,11 @@ def motion_to_dense_flow(depth, motions, masks, camera_motion,
   points = np.stack([x, y], axis=2)
   P = np.stack([X, Y, Z], axis=2)
 
-  for n in range(motions.shape[0]):
-    rot = np.reshape(motions[n, :9], [3, 3])
-    trans = np.reshape(motions[n, 9:12], [-1])
-    pivot = np.reshape(motions[n, 12:], [-1])
-    mask = masks[i, :, :]
+  for i in range(motions.shape[0]):
+    rot = np.reshape(motions[i, :9], [3, 3])
+    trans = np.reshape(motions[i, 9:12], [3])
+    pivot = np.reshape(motions[i, 12:], [3])
+    mask = np.expand_dims(masks[i, :, :], 2)
     P += mask * ((P - pivot).dot(rot.T) + pivot + trans - P)
 
   rot_cam = np.reshape(camera_motion[:9], [3, 3])
@@ -64,4 +65,4 @@ def motion_to_dense_flow(depth, motions, masks, camera_motion,
   points_t = np.stack([x_t, y_t], axis=2)
 
   flow = points_t - points
-  return flow
+  return flow.astype(np.float32)

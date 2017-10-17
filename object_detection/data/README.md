@@ -5,6 +5,7 @@ Download and extract http://download.tensorflow.org/models/resnet_v1_50_2016_08_
 protoc object_detection/protos/*.proto --python_out=.
 python create_cityscapes_tf_record.py --data_dir=MY_DATASET_ROOT --output_dir=data/records --set train
 python create_cityscapes_tf_record.py --data_dir=MY_DATASET_ROOT --output_dir=data/records --set val
+python create_vkitti_tf_record.py --data_dir=/media/data/datasets --output_dir=data/records --set val
 ```
 
 python train.py \

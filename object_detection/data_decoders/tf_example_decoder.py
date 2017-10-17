@@ -56,9 +56,10 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         'image/segmentation/object/class': tf.VarLenFeature(tf.int64),
         'image/segmentation/object/count': tf.FixedLenFeature((), tf.int64, 1),
         # Motion R-CNN
+        'next_image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),
         'image/object/motion': tf.VarLenFeature(tf.float32),
-        'image/camera/motion': tf.FixedLenFeature((), tf.float32, 12),
-        'image/camera/intrinsics': tf.FixedLenFeature((), tf.float32, 3),
+        'image/camera/motion': tf.FixedLenFeature((12,), tf.float32),
+        'image/camera/intrinsics': tf.FixedLenFeature((3,), tf.float32),
         'image/depth': tf.VarLenFeature(tf.float32),
         'image/flow': tf.VarLenFeature(tf.float32),
 
@@ -96,22 +97,24 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         fields.InputDataFields.groundtruth_instance_classes: (
             slim_example_decoder.Tensor('image/segmentation/object/class')),
         # Motion R-CNN
-        fields.InputDataFields.groundtruth_motions: (
+        fields.InputDataFields.next_image: slim_example_decoder.Image(
+            image_key='next_image/encoded', format_key='image/format', channels=3),
+        fields.InputDataFields.groundtruth_instance_motions: (
             slim_example_decoder.ItemHandlerCallback(
                 ['image/object/motion', 'image/segmentation/object/count'],
+                self._decode_instance_motions)),
         fields.InputDataFields.groundtruth_camera_motion: (
             slim_example_decoder.Tensor('image/camera/motion')),
         fields.InputDataFields.camera_intrinsics: (
             slim_example_decoder.Tensor('image/camera/intrinsics')),
-                self._decode_instance_motions))),
         fields.InputDataFields.groundtruth_depth: (
             slim_example_decoder.ItemHandlerCallback(
                 ['image/depth', 'image/height', 'image/width'],
-                self._decode_depth))),
+                self._decode_depth)),
         fields.InputDataFields.groundtruth_flow: (
             slim_example_decoder.ItemHandlerCallback(
                 ['image/flow', 'image/height', 'image/width'],
-                self._decode_flow)))
+                self._decode_flow))
     }
 
   def decode(self, tf_example_string_tensor):
@@ -192,18 +195,24 @@ class TfExampleDecoder(data_decoder.DataDecoder):
     return tf.cast(masks, tf.bool)
 
   def _decode_depth(self, keys_to_tensors):
+    depth = keys_to_tensors['image/depth']
+    if isinstance(depth, tf.SparseTensor):
+      depth = tf.sparse_tensor_to_dense(depth)
     height = keys_to_tensors['image/height']
     width = keys_to_tensors['image/width']
-    depth = tf.decode_raw(keys_to_tensors['image/depth'], tf.float32)
-    return tf.reshape(depth, [height, width, 1])
+    return tf.reshape(depth, tf.cast(tf.stack([height, width, 1], 0), tf.int32))
 
   def _decode_flow(self, keys_to_tensors):
+    flow = keys_to_tensors['image/flow']
+    if isinstance(flow, tf.SparseTensor):
+      flow = tf.sparse_tensor_to_dense(flow)
     height = keys_to_tensors['image/height']
     width = keys_to_tensors['image/width']
-    flow = tf.decode_raw(keys_to_tensors['image/flow'], tf.float32)
-    return tf.reshape(flow, [height, width, 2])
+    return tf.reshape(flow, tf.cast(tf.stack([height, width, 2], 0), tf.int32))
 
   def _decode_instance_motions(self, keys_to_tensors):
+    motions = keys_to_tensors['image/object/motion']
+    if isinstance(motions, tf.SparseTensor):
+      motions = tf.sparse_tensor_to_dense(motions)
     num_instances = keys_to_tensors['image/segmentation/object/count']
-    motions = tf.decode_raw(keys_to_tensors['image/object/motion'], tf.float32)
-    return tf.reshape(motions, [num_instances, 15])
+    return tf.reshape(motions, tf.cast(tf.stack([num_instances, 15], 0), tf.int32))

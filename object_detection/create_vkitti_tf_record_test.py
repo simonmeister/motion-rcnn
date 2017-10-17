@@ -20,10 +20,11 @@ from cityscapesscripts.helpers.labels import trainId2label
 
 from object_detection.data_decoders.tf_example_decoder import TfExampleDecoder
 from object_detection.utils.flow_util import flow_to_color
+from object_detection.utils.np_motion_util import dense_flow_from_motion
 
 
 with tf.Graph().as_default():
-    file_pattern = 'object_detection/data/records/vkitti_mini/00000-of-00004.record'
+    file_pattern = 'object_detection/data/records/vkitti_mini/00000-of-00000.record'
     tfrecords = glob.glob(file_pattern)
 
     with tf.device('/cpu:0'):
@@ -32,6 +33,7 @@ with tf.Graph().as_default():
         reader = tf.TFRecordReader()
         _, serialized_example = reader.read(filename_queue)
         example = TfExampleDecoder().decode(serialized_example)
+        flow_color = flow_to_color(tf.expand_dims(example['groundtruth_flow'], 0))[0, :, :, :]
         print(example.keys())
 
     sess = tf.Session()
@@ -48,29 +50,28 @@ with tf.Graph().as_default():
     os.makedirs(out_dir)
     with sess.as_default():
         for i in range(30):
-            example_np = sess.run(example)
+            example_np, flow_color_np = sess.run([example, flow_color])
             img_id_np = example_np['filename']
             image_np = example_np['image']
             gt_boxes_np = example_np['groundtruth_boxes']
             gt_classes_np = example_np['groundtruth_classes']
             gt_masks_np = example_np['groundtruth_instance_masks']
             height, width = image_np.shape[:2]
-            #depth_np = example_np['groundtruth_depth']
-            #print(np.count_nonzero(np.isinf(depth_np)))
-            #import matplotlib.pyplot as plt
-            #depth_mask = tf.to_float(
-            #    tf.logical_and(
-            #        tf.logical_not(tf.is_inf(depth_np)),
-            #        depth_np != 0))
-            #print(sess.run(depth_mask))
-            #print(sess.run(tf.reduce_sum(depth_np * depth_mask)))
-            #plt.imshow(depth_np[:, :, 0], cmap='gray')
-            #plt.show()
             num_instances_np = gt_masks_np.shape[0]
             print('image_id: {}, instances: {}, shape: {}'
                   .format(img_id_np, num_instances_np, image_np.shape))
-            image_np = np.zeros_like(image_np)
-            #image_np = np.squeeze(image_np)
+            image_np = np.squeeze(image_np)
+            depth_np = example_np['groundtruth_depth']
+
+            # compose flow from motion gt
+            composed_flow_np = dense_flow_from_motion(
+                depth_np,
+                example_np['groundtruth_instance_motions'],
+                gt_masks_np,
+                example_np['groundtruth_camera_motion'],
+                example_np['camera_intrinsics'])
+            composed_flow_color = flow_to_color(tf.expand_dims(composed_flow_np, 0))[0, :, :, :]
+            composed_flow_color_np = sess.run(composed_flow_color)
 
             # overlay masks
             for i in range(gt_boxes_np.shape[0]):
@@ -82,6 +83,7 @@ with tf.Graph().as_default():
             imd = ImageDraw.Draw(im)
             for i in range(gt_boxes_np.shape[0]):
                 label = trainId2label[gt_classes_np[i]]
+                name = 'car' if gt_classes_np[i] == 1 else 'van'
                 color = 'rgb({},{},{})'.format(*label.color)
                 pos = gt_boxes_np[i, :]
                 y0 = pos[0] * height
@@ -89,9 +91,19 @@ with tf.Graph().as_default():
                 y1 = pos[2] * height
                 x1 = pos[3] * width
                 imd.rectangle([x0, y0, x1, y1], outline=color)
-                imd.text(((x0 + x1) / 2, y1), label.name, fill=color)
+                imd.text(((x0 + x1) / 2, y1), name, fill=color)
 
-            im.save(os.path.join(out_dir, str(img_id_np) + '_image.png'))
-            #im.save(os.path.join(out_dir, str(img_id_np) + '_flow.png'))
-            #im.save(os.path.join(out_dir, str(img_id_np) + '_depth.png'))
+            depth_im = Image.fromarray(np.squeeze(
+                depth_np * 255 / 655.3).astype(np.uint8))
+            flow_im = Image.fromarray(np.squeeze(
+                flow_color_np * 255).astype(np.uint8))
+            composed_flow_im = Image.fromarray(np.squeeze(
+                composed_flow_color_np * 255).astype(np.uint8))
+            next_im = Image.fromarray(np.squeeze(example_np['next_image']))
+
+            im.save(os.path.join(out_dir, str(img_id_np) + '_image1.png'))
+            next_im.save(os.path.join(out_dir, str(img_id_np) + '_image2.png'))
+            flow_im.save(os.path.join(out_dir, str(img_id_np) + '_flow.png'))
+            depth_im.save(os.path.join(out_dir, str(img_id_np) + '_depth.png'))
+            composed_flow_im.save(os.path.join(out_dir, str(img_id_np) + '_flow_from_motion.png'))
         sess.close()
