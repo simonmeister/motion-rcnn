@@ -71,6 +71,12 @@ class InputDataFields(object):
   groundtruth_keypoints = 'groundtruth_keypoints'
   groundtruth_keypoint_visibilities = 'groundtruth_keypoint_visibilities'
   groundtruth_label_scores = 'groundtruth_label_scores'
+  # Motion R-CNN
+  groundtruth_motions = 'groundtruth_motions'
+  groundtruth_camera_motion = 'groundtruth_camera_motion'
+  camera_intrinsics = 'camera_intrinsics'
+  groundtruth_depth = 'groundtruth_depth'
+  groundtruth_flow = 'groundtruth_flow'
 
 
 class BoxListFields(object):

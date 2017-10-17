@@ -19,10 +19,11 @@ import matplotlib.pyplot as plt
 from cityscapesscripts.helpers.labels import trainId2label
 
 from object_detection.data_decoders.tf_example_decoder import TfExampleDecoder
+from object_detection.utils.flow_util import flow_to_color
 
 
 with tf.Graph().as_default():
-    file_pattern = 'object_detection/data/records/cityscapes_mini/00000-of-00004.record'
+    file_pattern = 'object_detection/data/records/vkitti_mini/00000-of-00004.record'
     tfrecords = glob.glob(file_pattern)
 
     with tf.device('/cpu:0'):
@@ -41,7 +42,7 @@ with tf.Graph().as_default():
     sess.run(init_op)
 
     tf.train.start_queue_runners(sess=sess)
-    out_dir = 'object_detection/output/tests/cityscapes/'
+    out_dir = 'object_detection/output/tests/vkitti/'
     if os.path.isdir(out_dir):
       shutil.rmtree(out_dir)
     os.makedirs(out_dir)
@@ -54,7 +55,7 @@ with tf.Graph().as_default():
             gt_classes_np = example_np['groundtruth_classes']
             gt_masks_np = example_np['groundtruth_instance_masks']
             height, width = image_np.shape[:2]
-            #depth_np = example_np['depth']
+            #depth_np = example_np['groundtruth_depth']
             #print(np.count_nonzero(np.isinf(depth_np)))
             #import matplotlib.pyplot as plt
             #depth_mask = tf.to_float(
@@ -90,5 +91,7 @@ with tf.Graph().as_default():
                 imd.rectangle([x0, y0, x1, y1], outline=color)
                 imd.text(((x0 + x1) / 2, y1), label.name, fill=color)
 
-            im.save(os.path.join(out_dir, str(img_id_np) + '.png'))
+            im.save(os.path.join(out_dir, str(img_id_np) + '_image.png'))
+            #im.save(os.path.join(out_dir, str(img_id_np) + '_flow.png'))
+            #im.save(os.path.join(out_dir, str(img_id_np) + '_depth.png'))
         sess.close()

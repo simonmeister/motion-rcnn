@@ -22,7 +22,7 @@ from object_detection.utils import label_map_util
 
 flags = tf.app.flags
 flags.DEFINE_string('data_dir', '', 'Root directory for datasets.')
-flags.DEFINE_string('set', 'train', 'Create train, val or test set')
+flags.DEFINE_string('set', 'train', 'Create train or val set')
 flags.DEFINE_string('output_dir', '', 'Root directory for TFRecords')
 flags.DEFINE_string('label_map_path', 'data/vkitti_label_map.pbtxt',
                     'Path to label map proto')
@@ -71,7 +71,10 @@ def _get_record_filename(record_dir, shard_id, num_shards):
     return os.path.join(record_dir, output_filename)
 
 
-def _euler_to_rot(x, y, z):
+def _euler_to_rot(dct):
+  x = dct['rx']
+  y = dct['ry']
+  z = dct['rz']
   rot_x = np.array([[np.cos(x), -np.sin(x), 0],
                     [np.sin(x), np.cos(x), 0],
                     [0, 0, 1]])
@@ -82,6 +85,10 @@ def _euler_to_rot(x, y, z):
                     [0, np.cos(z), -np.sin(z)],
                     [0, np.sin(z), np.cos(z)]])
   return rot_y * rot_x * rot_z
+
+
+def _get_pivot(dct):
+  return np.array([dct['x3d'], dct['y3d'], dct['z3d']])
 
 
 def _create_tfexample(label_map_dict,
@@ -111,8 +118,8 @@ def _create_tfexample(label_map_dict,
   motions = []
   for row in tracking_rows:
     next_row = next_rows.get(r['tid'])
-    label = r['label']
-    tid = r['tid']
+    label = row['label']
+    tid = row['tid']
     # find out which color this object corresponds to in the segmentation image
     seg_r, seg_g, seg_b = segmentation_color_map['{}:{}'.format(label, tid)]
      # ensure object still tracked in next frame and visible in original frame
@@ -127,21 +134,20 @@ def _create_tfexample(label_map_dict,
           and segmentation[:, :, 2] == seg_b
       mask = mask.astype(np.uint8)[:, :, 0]
       masks.append(mask)
-      #w3d h3d l3d x3d y3d z3d ry rx rz
-      p1 = np.array([row['x3d'], row['y3d'], row['z3d']])
+      p1 = _get_pivot(row)
       if rows['moving'] == 1:
-        r1 = euler_to_rot(row['rx'] row['ry'], row['rz'])
-        r2_cam2 = euler_to_rot(next_row['rx'] next_row['ry'], next_row['rz'])
+        r1 = euler_to_rot(row)
+        r2_cam2 = euler_to_rot(next_row)
         r2 = rot_cam2_to_cam1 @ r2_cam2
         r1_to_r2 = r2 @ r1.T
-        p2 = np.array([next_row['x3d'], next_row['y3d'], next_row['z3d']])
+        p2 = _get_pivot(next_row)
         p2_hom = np.concatenate(p2, np.array([1]))
         p2_cam1_hom = extrinsics * next_extrinsics * p2_hom
         p2_cam1 = p2_cam1_hom[:3] / p2_cam1_hom[3]
         p1_to_p2 = p2_cam1 - p1
       else:
-        r1_to_r2 = np.zeros([3, 3], dtype=np.float32)
-        p1_to_p2
+        r1_to_r2 = np.eye(3, dtype=np.float32)
+        p1_to_p2 = np.zeros([3], dtype=np.float32)
       motion = np.concatenate([r1_to_r2.ravel(), p1_to_p2, p1])
       motions.append(motion)
   if len(boxes) > 0:
@@ -149,9 +155,9 @@ def _create_tfexample(label_map_dict,
       masks = np.stack(masks, axis=0)
       motions = np.stack(masks, axis=0)
   else:
-      boxes = np.zeros((0, 5))
-      masks = np.zeros((0, 0, 0))
-      motions = np.zeros((0, 9))
+      boxes = np.zeros((0, 5), dtype=np.float32)
+      masks = np.zeros((0, 0, 0), dtype=np.float32)
+      motions = np.zeros((0, 9), dtype=np.float32)
 
   height, width = image.shape[:2]
   num_instances = boxes.shape[0]
@@ -164,6 +170,8 @@ def _create_tfexample(label_map_dict,
   encoded_image = cv2.imencode('png', image)
   encoded_next_image = cv2.imencode('png', next_image)
   key = hashlib.sha256(encoded_image).hexdigest()
+
+  camera_intrinsics = np.array([], dtype=np.float32)
 
 
   example = tf.train.Example(features=tf.train.Features(feature={
@@ -188,7 +196,8 @@ def _create_tfexample(label_map_dict,
     'image/segmentation/object/class': dataset_util.int64_list_feature(classes),
     'image/depth': dataset_util.bytes_feature(depth.tostring()),
     'image/flow': dataset_util.bytes_feature(flow.tostring()),
-    'image/camera/motion': dataset_util.float_list_feature(camera_motion.tolist())
+    'image/camera/motion': dataset_util.float_list_feature(camera_motion.tolist()),
+    'image/camera/intrinsics': dataset_util.float_list_feature(camera_intrinsics.tolist())
   }))
   return example, num_instances
 
@@ -295,9 +304,12 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
            extrinsics_seq[i], extrinsics_seq[i + 1],
            tracking_seq[i], tracking_seq[i + 1]))
 
-  if is_training:
-    random.seed(0)
-    random.shuffle(example_infos)
+  random.seed(0)
+  random.shuffle(example_infos)
+  if split_name == 'val':
+    example_infos = example_infos[:100]
+  else:
+    example_infos = example_infos[100:]
 
   num_per_shard = FLAGS.examples_per_tfrecord
   num_shards = int(math.ceil(len(example_infos) / float(num_per_shard)))
@@ -360,15 +372,14 @@ def main(_):
   dataset_root = FLAGS.data_dir
   label_map_dict = label_map_util.get_label_map_dict(FLAGS.label_map_path)
 
-  assert set_name in ['train', 'val', 'mini'], set_name
-  is_training = set_name in ['train', 'mini']
+  assert set_name in ['train', 'val'], set_name
+  is_training = set_name in ['train']
 
   # if not tf.gfile.Exists(dataset_root):
   #  tf.gfile.MakeDirs(dataset_root)
 
   # for url in _DATA_URLS:
   #   download_and_uncompress_zip(url, dataset_dir)
-  #   TODO automatically create mini split by copying test/bonn
 
   record_dir = os.path.join(records_root, 'vkitti_' + set_name)
 

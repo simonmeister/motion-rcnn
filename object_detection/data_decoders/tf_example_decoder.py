@@ -56,9 +56,11 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         'image/segmentation/object/class': tf.VarLenFeature(tf.int64),
         'image/segmentation/object/count': tf.FixedLenFeature((), tf.int64, 1),
         # Motion R-CNN
+        'image/object/motion': tf.VarLenFeature(tf.float32),
         'image/camera/motion': tf.FixedLenFeature((), tf.float32, 12),
-        'image/object/motion': tf.VarLenFeature((), tf.float32),
-        'image/object/motion': tf.VarLenFeature((), tf.float32),
+        'image/camera/intrinsics': tf.FixedLenFeature((), tf.float32, 3),
+        'image/depth': tf.VarLenFeature(tf.float32),
+        'image/flow': tf.VarLenFeature(tf.float32),
 
     }
     self.items_to_handlers = {
@@ -94,11 +96,13 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         fields.InputDataFields.groundtruth_instance_classes: (
             slim_example_decoder.Tensor('image/segmentation/object/class')),
         # Motion R-CNN
-        fields.InputDataFields.groundtruth_camera_motion: (
-            slim_example_decoder.Tensor('image/camera/motion')),
         fields.InputDataFields.groundtruth_motions: (
             slim_example_decoder.ItemHandlerCallback(
                 ['image/object/motion', 'image/segmentation/object/count'],
+        fields.InputDataFields.groundtruth_camera_motion: (
+            slim_example_decoder.Tensor('image/camera/motion')),
+        fields.InputDataFields.camera_intrinsics: (
+            slim_example_decoder.Tensor('image/camera/intrinsics')),
                 self._decode_instance_motions))),
         fields.InputDataFields.groundtruth_depth: (
             slim_example_decoder.ItemHandlerCallback(
@@ -107,8 +111,7 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         fields.InputDataFields.groundtruth_flow: (
             slim_example_decoder.ItemHandlerCallback(
                 ['image/flow', 'image/height', 'image/width'],
-                self._decode_flow))),
-
+                self._decode_flow)))
     }
 
   def decode(self, tf_example_string_tensor):
