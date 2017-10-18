@@ -19,6 +19,7 @@ from tensorflow.python.lib.io.tf_record import TFRecordCompressionType
 
 from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
+from object_detection.utils.np_motion_util import dense_flow_from_motion
 
 
 flags = tf.app.flags
@@ -29,6 +30,9 @@ flags.DEFINE_string('label_map_path', 'data/vkitti_label_map.pbtxt',
                     'Path to label map proto')
 flags.DEFINE_integer('examples_per_tfrecord', 100,
                      'How many examples per out file')
+flags.DEFINE_boolean('gt_rigid_flow_from_motion', True,
+                     'Use supplied flow gt or compose from motion '
+                     '(more precise, but some motions like wheels are not captured)')
 FLAGS = flags.FLAGS
 
 
@@ -81,6 +85,10 @@ def _euler_to_rot(dct):
   x = dct['rx']
   y = dct['ry']
   z = dct['rz']
+  rot_x = np.array([[1, 0, 0],
+                    [0, np.cos(z), -np.sin(z)],
+                    [0, np.sin(z), np.cos(z)]],
+                   dtype=np.float32)
   rot_z = np.array([[np.cos(x), -np.sin(x), 0],
                     [np.sin(x), np.cos(x), 0],
                     [0, 0, 1]],
@@ -89,11 +97,7 @@ def _euler_to_rot(dct):
                     [0, 1, 0],
                     [-np.sin(y), 0, np.cos(y)]],
                    dtype=np.float32)
-  rot_x = np.array([[1, 0, 0],
-                    [0, np.cos(z), -np.sin(z)],
-                    [0, np.sin(z), np.cos(z)]],
-                   dtype=np.float32)
-  return rot_z * rot_y * rot_x
+  return rot_z @ rot_x @ rot_y
 
 
 def _get_pivot(dct):
@@ -185,6 +189,13 @@ def _create_tfexample(label_map_dict,
 
   camera_intrinsics = np.array([725.0, 620.5, 187.0], dtype=np.float32)
 
+  if FLAGS.gt_rigid_flow_from_motion:
+    composed_flow = dense_flow_from_motion(depth, motions, masks,
+                                           camera_motion, camera_intrinsics)
+    example_flow = composed_flow
+  else:
+    example_flow = flow
+
   example = tf.train.Example(features=tf.train.Features(feature={
     'image/height': dataset_util.int64_feature(height),
     'image/width': dataset_util.int64_feature(width),
@@ -206,7 +217,7 @@ def _create_tfexample(label_map_dict,
     'image/segmentation/object/index_2': dataset_util.int64_list_feature(index_2.tolist()),
     'image/segmentation/object/class': dataset_util.int64_list_feature(classes),
     'image/depth': dataset_util.float_list_feature(depth.ravel().tolist()),
-    'image/flow': dataset_util.float_list_feature(flow.ravel().tolist()),
+    'image/flow': dataset_util.float_list_feature(example_flow.ravel().tolist()),
     'image/camera/motion': dataset_util.float_list_feature(camera_motion.tolist()),
     'image/camera/intrinsics': dataset_util.float_list_feature(camera_intrinsics.tolist())
   }))
