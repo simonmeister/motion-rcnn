@@ -457,8 +457,9 @@ class MaskRCNNBoxPredictor(BoxPredictor):
             activation_fn=None,
             scope='MotionPredictor')
         instance_motions = tf.reshape(
-            instance_motions, [-1, 1, self._num_classes, self._num_motion_params])
-      predictions_dict[MOTION_PREDICTIONS] = motion_predictions
+            motion_predictions,
+            [-1, 1, self._num_classes, self._num_motion_params])
+      predictions_dict[MOTION_PREDICTIONS] = instance_motions
 
     return predictions_dict
 

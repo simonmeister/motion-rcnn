@@ -496,7 +496,7 @@ class MulticlassNonMaxSuppressionTest(tf.test.TestCase):
     exp_nms_scores = [[.95, .9, .85, .3]]
     exp_nms_classes = [[0, 0, 1, 0]]
 
-    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
      num_detections) = post_processing.batch_multiclass_non_max_suppression(
          boxes, scores, score_thresh, iou_thresh,
          max_size_per_class=max_output_size, max_total_size=max_output_size)
@@ -543,7 +543,7 @@ class MulticlassNonMaxSuppressionTest(tf.test.TestCase):
     exp_nms_classes = np.array([[0, 0, 0, 0],
                                 [1, 0, 0, 0]])
 
-    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
      num_detections) = post_processing.batch_multiclass_non_max_suppression(
          boxes, scores, score_thresh, iou_thresh,
          max_size_per_class=max_output_size, max_total_size=max_output_size)
@@ -615,7 +615,7 @@ class MulticlassNonMaxSuppressionTest(tf.test.TestCase):
                                [[10, 11], [12, 13]],
                                [[0, 0], [0, 0]]]])
 
-    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
      num_detections) = post_processing.batch_multiclass_non_max_suppression(
          boxes, scores, score_thresh, iou_thresh,
          max_size_per_class=max_output_size, max_total_size=max_output_size,
@@ -638,6 +638,78 @@ class MulticlassNonMaxSuppressionTest(tf.test.TestCase):
       self.assertAllClose(nmsed_classes, exp_nms_classes)
       self.assertAllClose(num_detections, [2, 3])
       self.assertAllClose(nmsed_masks, exp_nms_masks)
+
+  def test_batch_multiclass_nms_with_motions(self):
+    boxes = tf.constant([[[[0, 0, 1, 1], [0, 0, 4, 5]],
+                          [[0, 0.1, 1, 1.1], [0, 0.1, 2, 1.1]],
+                          [[0, -0.1, 1, 0.9], [0, -0.1, 1, 0.9]],
+                          [[0, 10, 1, 11], [0, 10, 1, 11]]],
+                         [[[0, 10.1, 1, 11.1], [0, 10.1, 1, 11.1]],
+                          [[0, 100, 1, 101], [0, 100, 1, 101]],
+                          [[0, 1000, 1, 1002], [0, 999, 2, 1004]],
+                          [[0, 1000, 1, 1002.1], [0, 999, 2, 1002.7]]]],
+                        tf.float32)
+    scores = tf.constant([[[.9, 0.01], [.75, 0.05],
+                           [.6, 0.01], [.95, 0]],
+                          [[.5, 0.01], [.3, 0.01],
+                           [.01, .85], [.01, .5]]])
+    motions = tf.constant([[[[0, 0, 1, 1], [0, 0, 4, 5]],
+                          [[0, 0.1, 1, 1.1], [0, 0.1, 2, 1.1]],
+                          [[0, -0.1, 1, 0.9], [0, -0.1, 1, 0.9]],
+                          [[0, 10, 1, 11], [0, 10, 1, 11]]],
+                         [[[0, 10.1, 1, 11.1], [0, 10.1, 1, 11.1]],
+                          [[0, 100, 1, 101], [0, 100, 1, 101]],
+                          [[0, 1000, 1, 1002], [0, 999, 2, 1004]],
+                          [[0, 1000, 1, 1002.1], [0, 999, 2, 1002.7]]]],
+                        tf.float32)
+    score_thresh = 0.1
+    iou_thresh = .5
+    max_output_size = 4
+
+    exp_nms_corners = np.array([[[0, 10, 1, 11],
+                                 [0, 0, 1, 1],
+                                 [0, 0, 0, 0],
+                                 [0, 0, 0, 0]],
+                                [[0, 999, 2, 1004],
+                                 [0, 10.1, 1, 11.1],
+                                 [0, 100, 1, 101],
+                                 [0, 0, 0, 0]]])
+    exp_nms_scores = np.array([[.95, .9, 0, 0],
+                               [.85, .5, .3, 0]])
+    exp_nms_classes = np.array([[0, 0, 0, 0],
+                                [1, 0, 0, 0]])
+    exp_nms_motions = np.array([[[0, 10, 1, 11],
+                                 [0, 0, 1, 1],
+                                 [0, 0, 0, 0],
+                                 [0, 0, 0, 0]],
+                                [[0, 999, 2, 1004],
+                                 [0, 10.1, 1, 11.1],
+                                 [0, 100, 1, 101],
+                                 [0, 0, 0, 0]]])
+
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
+     num_detections) = post_processing.batch_multiclass_non_max_suppression(
+         boxes, scores, score_thresh, iou_thresh,
+         max_size_per_class=max_output_size, max_total_size=max_output_size,
+         motions=motions)
+
+    # Check static shapes
+    self.assertAllEqual(nmsed_boxes.shape.as_list(), exp_nms_corners.shape)
+    self.assertAllEqual(nmsed_scores.shape.as_list(), exp_nms_scores.shape)
+    self.assertAllEqual(nmsed_classes.shape.as_list(), exp_nms_classes.shape)
+    self.assertAllEqual(nmsed_motions.shape.as_list(), exp_nms_motions.shape)
+    self.assertEqual(num_detections.shape.as_list(), [2])
+
+    with self.test_session() as sess:
+      (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_motions,
+       num_detections) = sess.run([nmsed_boxes, nmsed_scores, nmsed_classes,
+                                   nmsed_motions, num_detections])
+
+      self.assertAllClose(nmsed_boxes, exp_nms_corners)
+      self.assertAllClose(nmsed_scores, exp_nms_scores)
+      self.assertAllClose(nmsed_classes, exp_nms_classes)
+      self.assertAllClose(num_detections, [2, 3])
+      self.assertAllClose(nmsed_motions, exp_nms_motions)
 
   def test_batch_multiclass_nms_with_dynamic_batch_size(self):
     boxes_placeholder = tf.placeholder(tf.float32, shape=(None, None, 2, 4))
@@ -689,7 +761,7 @@ class MulticlassNonMaxSuppressionTest(tf.test.TestCase):
                                [[10, 11], [12, 13]],
                                [[0, 0], [0, 0]]]])
 
-    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
      num_detections) = post_processing.batch_multiclass_non_max_suppression(
          boxes_placeholder, scores_placeholder, score_thresh, iou_thresh,
          max_size_per_class=max_output_size, max_total_size=max_output_size,
@@ -764,7 +836,7 @@ class MulticlassNonMaxSuppressionTest(tf.test.TestCase):
                       [[0, 0], [0, 0]],
                       [[0, 0], [0, 0]]]]
 
-    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
      num_detections) = post_processing.batch_multiclass_non_max_suppression(
          boxes, scores, score_thresh, iou_thresh,
          max_size_per_class=max_output_size, max_total_size=max_output_size,
@@ -780,6 +852,69 @@ class MulticlassNonMaxSuppressionTest(tf.test.TestCase):
       self.assertAllClose(num_detections, [1, 1])
       self.assertAllClose(nmsed_masks, exp_nms_masks)
 
+  def test_batch_multiclass_nms_with_motions_and_num_valid_boxes(self):
+    boxes = tf.constant([[[[0, 0, 1, 1], [0, 0, 4, 5]],
+                          [[0, 0.1, 1, 1.1], [0, 0.1, 2, 1.1]],
+                          [[0, -0.1, 1, 0.9], [0, -0.1, 1, 0.9]],
+                          [[0, 10, 1, 11], [0, 10, 1, 11]]],
+                         [[[0, 10.1, 1, 11.1], [0, 10.1, 1, 11.1]],
+                          [[0, 100, 1, 101], [0, 100, 1, 101]],
+                          [[0, 1000, 1, 1002], [0, 999, 2, 1004]],
+                          [[0, 1000, 1, 1002.1], [0, 999, 2, 1002.7]]]],
+                        tf.float32)
+    scores = tf.constant([[[.9, 0.01], [.75, 0.05],
+                           [.6, 0.01], [.95, 0]],
+                          [[.5, 0.01], [.3, 0.01],
+                           [.01, .85], [.01, .5]]])
+    motions = tf.constant([[[[0, 0, 1, 1], [0, 0, 4, 5]],
+                          [[0, 0.1, 1, 1.1], [0, 0.1, 2, 1.1]],
+                          [[0, -0.1, 1, 0.9], [0, -0.1, 1, 0.9]],
+                          [[0, 10, 1, 11], [0, 10, 1, 11]]],
+                         [[[0, 10.1, 1, 11.1], [0, 10.1, 1, 11.1]],
+                          [[0, 100, 1, 101], [0, 100, 1, 101]],
+                          [[0, 1000, 1, 1002], [0, 999, 2, 1004]],
+                          [[0, 1000, 1, 1002.1], [0, 999, 2, 1002.7]]]],
+                        tf.float32)
+    num_valid_boxes = tf.constant([1, 1], tf.int32)
+    score_thresh = 0.1
+    iou_thresh = .5
+    max_output_size = 4
 
+    exp_nms_corners = [[[0, 0, 1, 1],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0]],
+                       [[0, 10.1, 1, 11.1],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0]]]
+    exp_nms_scores = [[.9, 0, 0, 0],
+                      [.5, 0, 0, 0]]
+    exp_nms_classes = [[0, 0, 0, 0],
+                       [0, 0, 0, 0]]
+    exp_nms_motions = [[[0, 0, 1, 1],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0]],
+                       [[0, 10.1, 1, 11.1],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0],
+                        [0, 0, 0, 0]]]
+
+    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
+     num_detections) = post_processing.batch_multiclass_non_max_suppression(
+         boxes, scores, score_thresh, iou_thresh,
+         max_size_per_class=max_output_size, max_total_size=max_output_size,
+         num_valid_boxes=num_valid_boxes, motions=motions)
+
+    with self.test_session() as sess:
+      (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_motions,
+       num_detections) = sess.run([nmsed_boxes, nmsed_scores, nmsed_classes,
+                                   nmsed_motions, num_detections])
+      self.assertAllClose(nmsed_boxes, exp_nms_corners)
+      self.assertAllClose(nmsed_scores, exp_nms_scores)
+      self.assertAllClose(nmsed_classes, exp_nms_classes)
+      self.assertAllClose(num_detections, [1, 1])
+      self.assertAllClose(nmsed_motions, exp_nms_motions)
 if __name__ == '__main__':
   tf.test.main()

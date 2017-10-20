@@ -106,6 +106,25 @@ class MaskRCNNBoxPredictorTest(tf.test.TestCase):
           box_code_size=4,
           predict_instance_masks=True)
 
+  def test_get_instance_motions(self):
+    image_features = tf.random_uniform([2, 7, 7, 3], dtype=tf.float32)
+    mask_box_predictor = box_predictor.MaskRCNNBoxPredictor(
+        is_training=False,
+        num_classes=5,
+        fc_hyperparams=self._build_arg_scope_with_hyperparams(),
+        use_dropout=False,
+        dropout_keep_prob=0.5,
+        box_code_size=4,
+        conv_hyperparams=self._build_arg_scope_with_hyperparams(
+            op_type=hyperparams_pb2.Hyperparams.CONV),
+        predict_instance_motions=True,
+        num_layers_before_mask_prediction=2)
+    box_predictions = mask_box_predictor.predict(
+        image_features, num_predictions_per_location=1, scope='BoxPredictor')
+    motion_predictions = box_predictions[box_predictor.MOTION_PREDICTIONS]
+    self.assertListEqual([2, 1, 5, 9],
+                         motion_predictions.get_shape().as_list())
+
   def test_get_instance_masks(self):
     image_features = tf.random_uniform([2, 7, 7, 3], dtype=tf.float32)
     mask_box_predictor = box_predictor.MaskRCNNBoxPredictor(
@@ -125,7 +144,7 @@ class MaskRCNNBoxPredictorTest(tf.test.TestCase):
     self.assertListEqual([2, 1, 5, 14, 14],
                          mask_predictions.get_shape().as_list())
 
-  def test_do_not_return_instance_masks_and_keypoints_without_request(self):
+  def test_do_not_return_instance_masks_motions_and_keypoints_without_request(self):
     image_features = tf.random_uniform([2, 7, 7, 3], dtype=tf.float32)
     mask_box_predictor = box_predictor.MaskRCNNBoxPredictor(
         is_training=False,

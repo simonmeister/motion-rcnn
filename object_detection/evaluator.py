@@ -84,6 +84,7 @@ def _extract_prediction_tensors(model,
                                                       0.5))
 
     tensor_dict['detection_masks'] = detection_masks_reframed
+  # TODO: handle motions
   # load groundtruth fields into tensor_dict
   if not ignore_groundtruth:
     normalized_gt_boxlist = box_list.BoxList(

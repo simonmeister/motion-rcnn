@@ -195,7 +195,8 @@ class DetectionModel(object):
                           groundtruth_boxes_list,
                           groundtruth_classes_list,
                           groundtruth_masks_list=None,
-                          groundtruth_keypoints_list=None):
+                          groundtruth_keypoints_list=None,
+                          groundtruth_motions_list=None):
     """Provide groundtruth tensors.
 
     Args:
@@ -216,6 +217,9 @@ class DetectionModel(object):
         shape [batch, max_detections, num_keypoints, 2] containing keypoints.
         Keypoints are assumed to be provided in normalized coordinates and
         missing keypoints should be encoded as NaN.
+      groundtruth_motions_list: a list of 2-D tf.float32 tensors of
+        shape [max_detections, num_motion_params] containing motions
+        for each object.  If None, no motions are provided.
     """
     self._groundtruth_lists[fields.BoxListFields.boxes] = groundtruth_boxes_list
     self._groundtruth_lists[
@@ -226,6 +230,9 @@ class DetectionModel(object):
     if groundtruth_keypoints_list:
       self._groundtruth_lists[
           fields.BoxListFields.keypoints] = groundtruth_keypoints_list
+    if groundtruth_motions_list:
+      self._groundtruth_lists[
+          fields.BoxListFields.motions] = groundtruth_motions_list
 
   @abstractmethod
   def restore_map(self, from_detection_checkpoint=True):

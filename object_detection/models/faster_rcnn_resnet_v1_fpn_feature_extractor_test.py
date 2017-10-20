@@ -32,6 +32,7 @@ class FasterRcnnResnetV1FeatureExtractorTest(tf.test.TestCase):
     return feature_extractor_map[architecture](
         is_training=False,
         reuse_weights=None,
+        first_stage_features_stride=16,
         weight_decay=0.0)
 
   def test_extract_proposal_features_returns_expected_sizes(self):

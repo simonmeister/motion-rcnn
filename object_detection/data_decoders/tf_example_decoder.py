@@ -61,8 +61,7 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         'image/camera/motion': tf.FixedLenFeature((12,), tf.float32),
         'image/camera/intrinsics': tf.FixedLenFeature((3,), tf.float32),
         'image/depth': tf.VarLenFeature(tf.float32),
-        'image/flow': tf.VarLenFeature(tf.float32),
-
+        'image/flow': tf.VarLenFeature(tf.float32)
     }
     self.items_to_handlers = {
         fields.InputDataFields.image: slim_example_decoder.Image(

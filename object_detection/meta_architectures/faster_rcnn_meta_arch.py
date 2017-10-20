@@ -588,6 +588,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
         5) mask_predictions: (optional) a 4-D tensor with shape
           [total_num_padded_proposals, num_classes, mask_height, mask_width]
           containing instance mask predictions.
+        6) motion_predictions: (optional) a 4-D tensor with shape
+          [total_num_padded_proposals, num_classes, num_motion_params]
+          containing instance mask predictions.
     """
     proposal_boxes_normalized, _, num_proposals = self._postprocess_rpn(
         rpn_box_encodings, rpn_objectness_predictions_with_background,
@@ -1049,6 +1052,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
       groundtruth_masks_list: a list of 2-D tf.bool tensors of
         shape [num_boxes, height_in, width_in] containing instance
         masks with values in {0, 1}. Will be None if no masks are provided.
+      groundtruth_motions_list: a list of 2-D tf.float32 tensors of
+        shape [num_boxes, num_motion_gt_params] containing instance
+        motions. Will be None if no motions are provided.
     """
     groundtruth_boxlists = [
         box_list_ops.to_absolute_coordinates(
@@ -1060,10 +1066,17 @@ class FasterRCNNMetaArch(model.DetectionModel):
         for one_hot_encoding in self.groundtruth_lists(
             fields.BoxListFields.classes)]
     try:
-        groundtruth_masks_list = self.groundtruth_lists(fields.BoxListFields.masks)
+        groundtruth_masks_list = self.groundtruth_lists(
+            fields.BoxListFields.masks)
     except RuntimeError:
         groundtruth_masks_list = None
-    return groundtruth_boxlists, groundtruth_classes_with_background_list, groundtruth_masks_list
+    try:
+        groundtruth_motions_list = self.groundtruth_lists(
+            fields.BoxListFields.motions)
+    except RuntimeError:
+        groundtruth_motions_list = None
+    return (groundtruth_boxlists, groundtruth_classes_with_background_list,
+            groundtruth_masks_list, groundtruth_motions_list)
 
   def _sample_box_classifier_minibatch(self,
                                        proposal_boxlist,
@@ -1225,8 +1238,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
       mask_predictions: (optional) a 4-D tensor with shape
         [total_num_padded_proposals, num_classes, mask_height, mask_width]
         containing instance mask predictions.
-      motion_predictions: (optional) a 4-D tensor with shape
-        [total_num_padded_proposals, num_classes, 9]
+      motion_predictions: (optional) a 3-D tensor with shape
+        [total_num_padded_proposals, num_classes, num_motion_params]
         containing instance motion predictions.
       mask_threshold: a scalar threshold determining which mask values are
         rounded to 0 or 1.
@@ -1239,6 +1252,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
         `num_detections`: [batch]
         `detection_masks`:
           (optional) [batch, max_detections, mask_height, mask_width]
+        `detection_motions`:
+          (optional) [batch, max_detections, num_motion_params]
     """
     refined_box_encodings_batch = tf.reshape(refined_box_encodings,
                                              [-1, self.max_num_proposals,
@@ -1266,6 +1281,12 @@ class FasterRCNNMetaArch(model.DetectionModel):
       mask_predictions_batch = tf.reshape(
           mask_predictions, [-1, self.max_num_proposals,
                              self.num_classes, mask_height, mask_width])
+    motion_predictions_batch = None
+    if motion_predictions is not None:
+      num_motion_params = motion_predictions.shape[2].value
+      motion_predictions_batch = tf.reshape(
+          motion_predictions,
+          [-1, self.max_num_proposals, self.num_classes, num_motion_params])
     (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
      num_detections) = self._second_stage_nms_fn(
          refined_decoded_boxes_batch,
@@ -1274,7 +1295,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
          change_coordinate_frame=True,
          num_valid_boxes=num_proposals,
          masks=mask_predictions_batch,
-         motions=motion_predictions_batch) # TODO motion_predictions_batch
+         motions=motion_predictions_batch)
     detections = {'detection_boxes': nmsed_boxes,
                   'detection_scores': nmsed_scores,
                   'detection_classes': nmsed_classes,
@@ -1284,6 +1305,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
     if mask_predictions is not None:
       detections['detection_masks'] = tf.to_float(
           tf.greater_equal(detections['detection_masks'], mask_threshold))
+    if nmsed_motions is not None: # TODO maybe convert angles to matrices?
+      detections['detection_motions'] = nmsed_motions
     return detections
 
   def _batch_decode_boxes(self, box_encodings, anchor_boxes):
@@ -1355,7 +1378,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     """
     with tf.name_scope(scope, 'Loss', prediction_dict.values()):
       (groundtruth_boxlists, groundtruth_classes_with_background_list,
-       groundtruth_masks_list
+       groundtruth_masks_list, groundtruth_motions_list
        ) = self._format_groundtruth_data(prediction_dict['image_shape'])
       loss_dict = self._loss_rpn(
           prediction_dict['rpn_box_encodings'],
@@ -1374,7 +1397,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
                 groundtruth_boxlists,
                 groundtruth_classes_with_background_list,
                 prediction_dict.get('mask_predictions'),
-                groundtruth_masks_list))
+                groundtruth_masks_list,
+                prediction_dict.get('motion_predictions'),
+                groundtruth_motions_list))
     return loss_dict
 
   def _loss_rpn(self,
@@ -1463,7 +1488,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
                            groundtruth_boxlists,
                            groundtruth_classes_with_background_list,
                            mask_predictions=None,
-                           groundtruth_masks_list=None):
+                           groundtruth_masks_list=None,
+                           motion_predictions=None,
+                           groundtruth_motions_list=None):
     """Computes scalar box classifier loss tensors.
 
     Uses self._detector_target_assigner to obtain regression and classification
@@ -1498,6 +1525,13 @@ class FasterRCNNMetaArch(model.DetectionModel):
         [total_num_padded_proposals, num_classes, mask_height, mask_width]
         containing instance mask predictions.
       groundtruth_masks_list: (optional) a list of 2-D tf.bool tensors of
+        shape [num_boxes, height_in, width_in] containing instance
+        masks with values in {0, 1}. Must be provided if mask_predictions is
+        not None.
+      motion_predictions: (optional) a 4-D tensor with shape
+        [total_num_padded_proposals, num_classes, num_motion_params]
+        containing instance motion predictions.
+      groundtruth_motions_list: (optional) a list of 2-D tf.float32 tensors of
         shape [num_boxes, height_in, width_in] containing instance
         masks with values in {0, 1}. Must be provided if mask_predictions is
         not None.
@@ -1624,6 +1658,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
             'second_stage_mask_loss':
             (self._second_stage_mask_loss_weight * second_stage_mask_loss)
         })
+
+      if motion_predictions is not None:
+        pass # TODO
 
     return loss_dict
 

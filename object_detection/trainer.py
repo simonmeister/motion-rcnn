@@ -65,7 +65,12 @@ def _create_input_queue(batch_size_per_clone, create_tensor_dict_fn,
   float_images = tf.to_float(images)
   tensor_dict[fields.InputDataFields.image] = float_images
 
+  next_images = tensor_dict[fields.InputDataFields.next_image]
+  next_float_images = tf.to_float(next_images)
+  tensor_dict[fields.InputDataFields.next_image] = next_float_images
+
   if data_augmentation_options:
+    # TODO handle next_image, depth and flow to re-enable augmentations
     tensor_dict = preprocessor.preprocess(tensor_dict,
                                           data_augmentation_options)
 
@@ -93,11 +98,16 @@ def _get_inputs(input_queue, num_classes):
     masks_list: a list of 3-D float tensors of shape [num_boxes, image_height,
       image_width] containing instance masks for objects if present in the
       input_queue. Else returns None.
+    motions_list: a list of 2-D float tensors of shape [num_boxes,
+      num_motion_gt_params] containing instance motions for objects if present
+      in the input_queue. Else returns None.
   """
   read_data_list = input_queue.dequeue()
   label_id_offset = 1
   def extract_images_and_targets(read_data):
     image = read_data[fields.InputDataFields.image]
+    next_image = read_data[fields.InputDataFields.next_image]
+    image_input = tf.concat([image, next_image], 3)
     location_gt = read_data[fields.InputDataFields.groundtruth_boxes]
     classes_gt = tf.cast(read_data[fields.InputDataFields.groundtruth_classes],
                          tf.int32)
@@ -105,7 +115,8 @@ def _get_inputs(input_queue, num_classes):
     classes_gt = util_ops.padded_one_hot_encoding(indices=classes_gt,
                                                   depth=num_classes, left_pad=0)
     masks_gt = read_data.get(fields.InputDataFields.groundtruth_instance_masks)
-    return image, location_gt, classes_gt, masks_gt
+    motions_gt = read_data.get(fields.InputDataFields.groundtruth_instance_motions)
+    return image_input, location_gt, classes_gt, masks_gt, motions_gt
   return zip(*map(extract_images_and_targets, read_data_list))
 
 
@@ -118,16 +129,20 @@ def _create_losses(input_queue, create_model_fn):
   """
   detection_model = create_model_fn()
   (images, groundtruth_boxes_list, groundtruth_classes_list,
-   groundtruth_masks_list
+   groundtruth_masks_list, groundtruth_motions_list
   ) = _get_inputs(input_queue, detection_model.num_classes)
   images = [detection_model.preprocess(image) for image in images]
   images = tf.concat(images, 0)
   if any(mask is None for mask in groundtruth_masks_list):
     groundtruth_masks_list = None
+  if any(motion is None for motion in groundtruth_motions_list):
+    groundtruth_motions_list = None
 
-  detection_model.provide_groundtruth(groundtruth_boxes_list,
-                                      groundtruth_classes_list,
-                                      groundtruth_masks_list)
+  detection_model.provide_groundtruth(
+      groundtruth_boxes_list,
+      groundtruth_classes_list,
+      groundtruth_masks_list,
+      groundtruth_motions_list=groundtruth_motions_list)
   prediction_dict = detection_model.predict(images)
 
   losses_dict = detection_model.loss(prediction_dict)

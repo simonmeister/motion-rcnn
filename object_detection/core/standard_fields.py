@@ -101,6 +101,7 @@ class BoxListFields(object):
   masks = 'masks'
   keypoints = 'keypoints'
   keypoint_heatmaps = 'keypoint_heatmaps'
+  motions = 'motions'
 
 
 class TfExampleFields(object):

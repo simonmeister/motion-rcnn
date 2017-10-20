@@ -31,6 +31,7 @@ def multiclass_non_max_suppression(boxes,
                                    clip_window=None,
                                    change_coordinate_frame=False,
                                    masks=None,
+                                   motions=None,
                                    additional_fields=None,
                                    scope=None):
   """Multi-class version of non maximum suppression.
@@ -66,6 +67,9 @@ def multiclass_non_max_suppression(boxes,
     masks: (optional) a [k, q, mask_height, mask_width] float32 tensor
       containing box masks. `q` can be either number of classes or 1 depending
       on whether a separate mask is predicted per class.
+    motions: (optional) a [k, q, num_motion_params] float32 tensor
+      containing motions. `q` can be either number of classes or 1 depending
+      on whether a separate motion is predicted per class.
     additional_fields: (optional) If not None, a dictionary that maps keys to
       tensors whose first dimensions are all of size `k`. After non-maximum
       suppression, all tensors corresponding to the selected boxes will be
@@ -116,6 +120,8 @@ def multiclass_non_max_suppression(boxes,
     per_class_boxes_list = tf.unstack(boxes, axis=1)
     if masks is not None:
       per_class_masks_list = tf.unstack(masks, axis=1)
+    if motions is not None:
+      per_class_motions_list = tf.unstack(motions, axis=1)
     boxes_ids = (range(num_classes) if len(per_class_boxes_list) > 1
                  else [0] * num_classes)
     for class_idx, boxes_idx in zip(range(num_classes), boxes_ids):
@@ -130,6 +136,10 @@ def multiclass_non_max_suppression(boxes,
         per_class_masks = per_class_masks_list[boxes_idx]
         boxlist_and_class_scores.add_field(fields.BoxListFields.masks,
                                            per_class_masks)
+      if motions is not None:
+        per_class_motions = per_class_motions_list[boxes_idx]
+        boxlist_and_class_scores.add_field(fields.BoxListFields.motions,
+                                           per_class_motions)
       if additional_fields is not None:
         for key, tensor in additional_fields.items():
           boxlist_and_class_scores.add_field(key, tensor)
@@ -174,6 +184,7 @@ def batch_multiclass_non_max_suppression(boxes,
                                          change_coordinate_frame=False,
                                          num_valid_boxes=None,
                                          masks=None,
+                                         motions=None,
                                          scope=None,
                                          parallel_iterations=32):
   """Multi-class version of non maximum suppression that operates on a batch.
@@ -208,6 +219,9 @@ def batch_multiclass_non_max_suppression(boxes,
     masks: (optional) a [batch_size, num_anchors, q, mask_height, mask_width]
       float32 tensor containing box masks. `q` can be either number of classes
       or 1 depending on whether a separate mask is predicted per class.
+    motions: (optional) a [batch_size, num_anchors, q, num_motion_params]
+      float32 tensor containing box masks. `q` can be either number of classes
+      or 1 depending on whether a separate motion is predicted per class.
     scope: tf scope name.
     parallel_iterations: (optional) number of batch items to process in
       parallel.
@@ -223,6 +237,10 @@ def batch_multiclass_non_max_suppression(boxes,
       [batch_size, max_detections, mask_height, mask_width] float32 tensor
       containing masks for each selected box. This is set to None if input
       `masks` is None.
+    'nmsed_motions': (optional) a
+      [batch_size, max_detections, num_motion_params] float32 tensor
+      containing motions for each selected box. This is set to None if input
+      `motions` is None.
     'num_detections': A [batch_size] int32 tensor indicating the number of
       valid detections per batch item. Only the top num_detections[i] entries in
       nms_boxes[i], nms_scores[i] and nms_class[i] are valid. the rest of the
@@ -239,6 +257,7 @@ def batch_multiclass_non_max_suppression(boxes,
                      'to the third dimension of scores')
 
   original_masks = masks
+  original_motions = motions
   with tf.name_scope(scope, 'BatchMultiClassNonMaxSuppression'):
     boxes_shape = boxes.shape
     batch_size = boxes_shape[0].value
@@ -259,11 +278,15 @@ def batch_multiclass_non_max_suppression(boxes,
     if masks is None:
       masks_shape = tf.stack([batch_size, num_anchors, 1, 0, 0])
       masks = tf.zeros(masks_shape)
+    # Same for motions
+    if motions is None:
+      motions_shape = tf.stack([batch_size, num_anchors, 1, 0])
+      motions = tf.zeros(motions_shape)
 
     def single_image_nms_fn(args):
       """Runs NMS on a single image and returns padded output."""
       (per_image_boxes, per_image_scores, per_image_masks,
-       per_image_num_valid_boxes) = args
+       per_image_motions, per_image_num_valid_boxes) = args
       per_image_boxes = tf.reshape(
           tf.slice(per_image_boxes, 3 * [0],
                    tf.stack([per_image_num_valid_boxes, -1, -1])), [-1, q, 4])
@@ -277,6 +300,11 @@ def batch_multiclass_non_max_suppression(boxes,
                    tf.stack([per_image_num_valid_boxes, -1, -1, -1])),
           [-1, q, per_image_masks.shape[2].value,
            per_image_masks.shape[3].value])
+      per_image_motions = tf.reshape(
+         tf.slice(per_image_motions, 3 * [0],
+                  tf.stack([per_image_num_valid_boxes, -1, -1])),
+         [-1, q, per_image_motions.shape[2].value])
+
       nmsed_boxlist = multiclass_non_max_suppression(
           per_image_boxes,
           per_image_scores,
@@ -285,6 +313,7 @@ def batch_multiclass_non_max_suppression(boxes,
           max_size_per_class,
           max_total_size,
           masks=per_image_masks,
+          motions=per_image_motions,
           clip_window=clip_window,
           change_coordinate_frame=change_coordinate_frame)
       padded_boxlist = box_list_ops.pad_or_clip_box_list(nmsed_boxlist,
@@ -294,19 +323,24 @@ def batch_multiclass_non_max_suppression(boxes,
       nmsed_scores = padded_boxlist.get_field(fields.BoxListFields.scores)
       nmsed_classes = padded_boxlist.get_field(fields.BoxListFields.classes)
       nmsed_masks = padded_boxlist.get_field(fields.BoxListFields.masks)
+      nmsed_motions = padded_boxlist.get_field(fields.BoxListFields.motions)
       return [nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks,
-              num_detections]
+              nmsed_motions, num_detections]
 
     (batch_nmsed_boxes, batch_nmsed_scores,
-     batch_nmsed_classes, batch_nmsed_masks,
+     batch_nmsed_classes, batch_nmsed_masks, batch_nmsed_motions,
      batch_num_detections) = tf.map_fn(
          single_image_nms_fn,
-         elems=[boxes, scores, masks, num_valid_boxes],
-         dtype=[tf.float32, tf.float32, tf.float32, tf.float32, tf.int32],
+         elems=[boxes, scores, masks, motions, num_valid_boxes],
+         dtype=[tf.float32, tf.float32, tf.float32, tf.float32, tf.float32,
+                tf.int32],
          parallel_iterations=parallel_iterations)
 
     if original_masks is None:
       batch_nmsed_masks = None
 
+    if original_motions is None:
+      batch_nmsed_motions = None
+
     return (batch_nmsed_boxes, batch_nmsed_scores, batch_nmsed_classes,
-            batch_nmsed_masks, batch_num_detections)
+            batch_nmsed_masks, batch_nmsed_motions, batch_num_detections)
