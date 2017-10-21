@@ -32,6 +32,8 @@ image at a time, so any logic for applying a TargetAssigner to multiple
 images must be handled externally.
 """
 import tensorflow as tf
+import numpy as np
+import cv2
 
 from object_detection.box_coders import faster_rcnn_box_coder
 from object_detection.box_coders import mean_stddev_box_coder
@@ -448,8 +450,6 @@ def batch_assign_targets(target_assigner,
   return (batch_cls_targets, batch_cls_weights, batch_reg_targets,
           batch_reg_weights, match_list)
 
-import numpy as np
-import cv2
 
 def batch_assign_mask_targets(image_shape,
                               groundtruth_masks_list,
@@ -529,3 +529,39 @@ def batch_assign_mask_targets(image_shape,
   batch_mask_weights = tf.stack(mask_weights_list)
 
   return batch_mask_targets, batch_mask_weights
+
+
+def batch_assign_motion_targets(groundtruth_motions_list
+                                match_list):
+  """Batched assignment of motion targets.
+
+  Args:
+    groundtruth_motions_list: a list of 2-D tf.float32 tensors of
+      shape [num_boxes, num_gt_motion_params] containing instance
+      motions.
+    match_list: a list of matcher.Match objects encoding the match between
+      anchors and groundtruth boxes for each image of the batch,
+      with rows of the Match objects corresponding to groundtruth boxes
+      and columns corresponding to anchors.
+
+  Returns:
+    batch_motion_targets: a tensor of shape [batch_size, num_anchors,
+      num_gt_motion_params].
+    batch_motion_weights: a tensor of shape [batch_size, num_anchors].
+  """
+  motion_targets_list = []
+  motion_weights_list = []
+  for (groundtruth_motions, match) in zip(
+      groundtruth_motions_list, match_list):
+
+    gt_inds_per_anchor = tf.maximum(match.match_results, 0)
+    motion_weights = tf.cast(match.matched_column_indicator(), tf.float32)
+    motion_targets = tf.gather(gt_inds_per_anchor, groundtruth_motions)
+
+    motion_targets_list.append(motion_targets)
+    motion_weights_list.append(motion_weights)
+
+  batch_motion_targets = tf.stack(motion_weights_list)
+  batch_motion_weights = tf.stack(motion_weights_list)
+
+  return batch_motion_targets, batch_motion_weights

@@ -1660,7 +1660,24 @@ class FasterRCNNMetaArch(model.DetectionModel):
         })
 
       if motion_predictions is not None:
-        pass # TODO
+        if groundtruth_motions_list is None:
+          raise RuntimeError('No groundtruth motions provided.')
+
+        (batch_motion_targets, batch_motion_weights
+         ) = target_assigner.batch_assign_motion_targets(
+            groundtruth_motions_list,
+            match_list)
+        # TODO convert to matrices, select class as above for masks
+        second_stage_motion_losses = motion_util.motion_losses(
+            flat_motion_preditions, flat_motion_targets) # TODO masking
+
+        second_stage_motion_loss = tf.reduce_sum(
+            tf.boolean_mask(second_stage_motion_losses, paddings_indicator))
+
+        loss_dict.update({
+            'second_stage_motion_loss':
+            (self._second_stage_motion_loss_weight * second_stage_motion_loss)
+        }) # TODO add self._second_stage_motion_loss_weight
 
     return loss_dict
 

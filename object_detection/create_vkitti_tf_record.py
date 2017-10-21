@@ -19,7 +19,7 @@ from tensorflow.python.lib.io.tf_record import TFRecordCompressionType
 
 from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
-from object_detection.utils.np_motion_util import dense_flow_from_motion
+from object_detection.utils.np_motion_util import dense_flow_from_motion, euler_to_rot
 
 
 flags = tf.app.flags
@@ -85,19 +85,7 @@ def _euler_to_rot(dct):
   x = dct['rx']
   y = dct['ry']
   z = dct['rz']
-  rot_x = np.array([[1, 0, 0],
-                    [0, np.cos(z), -np.sin(z)],
-                    [0, np.sin(z), np.cos(z)]],
-                   dtype=np.float32)
-  rot_z = np.array([[np.cos(x), -np.sin(x), 0],
-                    [np.sin(x), np.cos(x), 0],
-                    [0, 0, 1]],
-                   dtype=np.float32)
-  rot_y = np.array([[np.cos(y), 0, np.sin(y)],
-                    [0, 1, 0],
-                    [-np.sin(y), 0, np.cos(y)]],
-                   dtype=np.float32)
-  return rot_z @ rot_x @ rot_y
+  return euler_to_rot(x, y, z)
 
 
 def _get_pivot(dct):

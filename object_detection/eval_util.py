@@ -233,6 +233,7 @@ def visualize_detection_results(result_dict,
   detection_classes = np.int32((result_dict['detection_classes']))
   detection_keypoints = result_dict.get('detection_keypoints', None)
   detection_masks = result_dict.get('detection_masks', None)
+  detection_motions = result_dict.get('detection_motions', None)
 
   # Plot groundtruth underneath detections
   if show_groundtruth:
@@ -264,11 +265,31 @@ def visualize_detection_results(result_dict,
     export_path = os.path.join(export_dir, 'export-{}.png'.format(tag))
     vis_utils.save_image_array_as_png(image, export_path)
 
-  summary = tf.Summary(value=[
+  summary_value =  [
       tf.Summary.Value(tag=tag, image=tf.Summary.Image(
           encoded_image_string=vis_utils.encode_image_array_as_png_str(
-              image)))
-  ])
+              image)))]
+
+  if detection_motions:
+    flow_image, flow_error_image = vis_utils.visualize_flow(
+        result_dict['depth'],
+        detection_motions,
+        result_dict['camera_motion'],
+        result_dict['camera_intrinsics'],
+        masks=detection_masks,
+        groundtruth_flow=result_dict.get('groundtruth_flow')
+        boxes=detection_boxes)
+    summary_value.append(
+        tf.Summary.Value(tag=tag + '_flow', image=tf.Summary.Image(
+            encoded_image_string=vis_utils.encode_image_array_as_png_str(
+                flow_image))))
+    if flow_error_image:
+      summary_value.append(
+          tf.Summary.Value(tag=tag + '_flow_error', image=tf.Summary.Image(
+              encoded_image_string=vis_utils.encode_image_array_as_png_str(
+                  flow_error_image))))
+
+  summary = tf.Summary(value=summary_value)
   summary_writer = tf.summary.FileWriter(summary_dir)
   summary_writer.add_summary(summary, global_step)
   summary_writer.close()

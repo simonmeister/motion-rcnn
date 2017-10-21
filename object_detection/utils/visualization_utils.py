@@ -28,6 +28,9 @@ import PIL.ImageFont as ImageFont
 import six
 import tensorflow as tf
 
+from object_detection.utils import np_motion_util
+from object_detection.utils import flow_util
+
 
 _TITLE_LEFT_MARGIN = 10
 _TITLE_TOP_MARGIN = 10
@@ -423,3 +426,37 @@ def visualize_boxes_and_labels_on_image_array(image,
           color=color,
           radius=line_thickness / 2,
           use_normalized_coordinates=use_normalized_coordinates)
+
+
+def visualize_flow(depth, motions, camera_motion, camera_intrinsics,
+                   masks=None, groundtruth_flow=None, boxes=None):
+  if masks is None:
+    assert boxes
+    masks_list = []
+    for i in boxes.shape[0]:
+      ymin, xmin, ymax, xmax = boxes[i, :]
+      mask = np.zeros_like(depth)
+      mask[ymin:ymax+1, xmin:xmax+1] = 1
+    masks = np.stack(masks)
+
+  flow = np_motion_util.dense_flow_from_motion(
+      depth,
+      motions,
+      masks,
+      camera_motion,
+      camera_intrinsics)
+  flow_image = flow_util.flow_to_color(
+      tf.expand_dims(flow, 0)).eval()[0, :, :, :]
+
+  flow_error_image = None
+  if groundtruth_flow:
+    groundtruth_flow_mask = np.float32((groundtruth_flow[:, :, 0] *
+                                        groundtruth_flow[:, :, 1]) != np.nan)
+    groundtruth_flow = np.nan_to_num(groundtruth_flow)
+    flow_error_image = flow_util.flow_error_image(
+        tf.expand_dims(flow, 0),
+        tf.expand_dims(groundtruth_flow, 0),
+        tf.expand_dims(groundtruth_flow_mask, 0)
+        ).eval()[0, :, :, :]
+
+  return flow_image, flow_error_image
