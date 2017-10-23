@@ -1286,12 +1286,14 @@ class FasterRCNNMetaArch(model.DetectionModel):
       mask_predictions_batch = tf.reshape(
           mask_predictions, [-1, self.max_num_proposals,
                              self.num_classes, mask_height, mask_width])
+
     motion_predictions_batch = None
     if motion_predictions is not None:
       num_motion_params = motion_predictions.shape[2].value
       motion_predictions_batch = tf.reshape(
           motion_predictions,
           [-1, self.max_num_proposals, self.num_classes, num_motion_params])
+
     (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
      num_detections) = self._second_stage_nms_fn(
          refined_decoded_boxes_batch,
@@ -1301,6 +1303,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
          num_valid_boxes=num_proposals,
          masks=mask_predictions_batch,
          motions=motion_predictions_batch)
+
     detections = {'detection_boxes': nmsed_boxes,
                   'detection_scores': nmsed_scores,
                   'detection_classes': nmsed_classes,
@@ -1310,7 +1313,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     if mask_predictions is not None:
       detections['detection_masks'] = tf.to_float(
           tf.greater_equal(detections['detection_masks'], mask_threshold))
-    if nmsed_motions is not None: # TODO maybe convert angles to matrices?
+    if nmsed_motions is not None:
       detections['detection_motions'] = nmsed_motions
     return detections
 

@@ -270,24 +270,27 @@ def visualize_detection_results(result_dict,
           encoded_image_string=vis_utils.encode_image_array_as_png_str(
               image)))]
 
-  if detection_motions:
-    flow_image, flow_error_image = vis_utils.visualize_flow(
-        result_dict['depth'],
-        detection_motions,
-        result_dict['camera_motion'],
-        result_dict['camera_intrinsics'],
-        masks=detection_masks,
-        groundtruth_flow=result_dict.get('groundtruth_flow'),
-        boxes=detection_boxes)
-    summary_value.append(
-        tf.Summary.Value(tag=tag + '_flow', image=tf.Summary.Image(
-            encoded_image_string=vis_utils.encode_image_array_as_png_str(
-                flow_image))))
-    if flow_error_image:
+  if detection_motions is not None:
+    with tf.Session().as_default():
+      flow_image, flow_error_image = vis_utils.visualize_flow(
+          result_dict['depth'],
+          detection_motions,
+          detection_scores,
+          result_dict['camera_motion'],
+          result_dict['camera_intrinsics'],
+          masks=detection_masks,
+          groundtruth_flow=result_dict.get('groundtruth_flow'),
+          boxes=detection_boxes,
+          min_score_thresh=min_score_thresh)
       summary_value.append(
-          tf.Summary.Value(tag=tag + '_flow_error', image=tf.Summary.Image(
+          tf.Summary.Value(tag=tag + '_flow', image=tf.Summary.Image(
               encoded_image_string=vis_utils.encode_image_array_as_png_str(
-                  flow_error_image))))
+                  flow_image * 255))))
+      if flow_error_image is not None:
+        summary_value.append(
+            tf.Summary.Value(tag=tag + '_flow_error', image=tf.Summary.Image(
+                encoded_image_string=vis_utils.encode_image_array_as_png_str(
+                    flow_error_image * 255))))
 
   summary = tf.Summary(value=summary_value)
   summary_writer = tf.summary.FileWriter(summary_dir)

@@ -27,6 +27,7 @@ from object_detection.core import box_list_ops
 from object_detection.core import prefetcher
 from object_detection.core import standard_fields as fields
 from object_detection.utils import ops
+from object_detection.utils import motion_util
 
 slim = tf.contrib.slim
 
@@ -52,7 +53,13 @@ def _extract_prediction_tensors(model,
   prefetch_queue = prefetcher.prefetch(input_dict, capacity=500) # TODO
   input_dict = prefetch_queue.dequeue()
   original_image = tf.expand_dims(input_dict[fields.InputDataFields.image], 0)
-  preprocessed_image = model.preprocess(tf.to_float(original_image))
+
+  next_image = input_dict.get(fields.InputDataFields.next_image)
+  image_input = original_image
+  if next_image is not None:
+    image_input = tf.concat([original_image, tf.expand_dims(next_image, 0)], 3)
+
+  preprocessed_image = model.preprocess(tf.to_float(image_input))
   prediction_dict = model.predict(preprocessed_image)
   detections = model.postprocess(prediction_dict)
 
@@ -84,6 +91,14 @@ def _extract_prediction_tensors(model,
                                                       0.5))
 
     tensor_dict['detection_masks'] = detection_masks_reframed
+
+  if 'detection_motions' in detections:
+    detection_motions = tf.squeeze(detections['detection_motions'],
+                                   axis=0)
+    detection_motions_with_matrices = (
+        motion_util.predicted_motion_angles_to_matrices(detection_motions))
+    tensor_dict['detection_motions'] = detection_motions_with_matrices
+
   # load groundtruth fields into tensor_dict
   if not ignore_groundtruth:
     normalized_gt_boxlist = box_list.BoxList(

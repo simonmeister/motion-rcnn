@@ -97,3 +97,10 @@ def _motion_losses(pred, target):
   err_pivot = tf.norm(d_pivot, axis=1)
 
   return err_angle, err_trans, err_pivot
+
+
+def predicted_motion_angles_to_matrices(pred):
+  """Convert predicted motions to use matrix representation for rotations."""
+  rot = euler_to_rot(pred[:, 0], pred[:, 1], pred[:, 2])
+  rot_flat = tf.reshape(rot, [-1, 9])
+  return tf.concat([rot_flat, pred[:, 3:]], axis=1)
