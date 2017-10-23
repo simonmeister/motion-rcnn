@@ -174,13 +174,15 @@ class FasterRCNNFeatureExtractor(object):
       A dict mapping variable names (to load from a checkpoint) to variables in
       the model graph.
     """
+    restore_conv1 = False # TODO make dependent on 3 vs 6 channel image
     variables_to_restore = {}
     for variable in tf.global_variables():
       for scope_name in [first_stage_feature_extractor_scope,
                          second_stage_feature_extractor_scope]:
         if variable.op.name.startswith(scope_name):
           var_name = variable.op.name.replace(scope_name + '/', '')
-          variables_to_restore[var_name] = variable
+          if restore_conv1 or not var_name.startswith('resnet_v1_50/conv1'):
+            variables_to_restore[var_name] = variable
     return variables_to_restore
 
 

@@ -157,6 +157,8 @@ class TfExampleDecoder(data_decoder.DataDecoder):
     is_crowd = fields.InputDataFields.groundtruth_is_crowd
     tensor_dict[is_crowd] = tf.cast(tensor_dict[is_crowd], dtype=tf.bool)
     tensor_dict[fields.InputDataFields.image].set_shape([None, None, 3])
+    if fields.InputDataFields.next_image in tensor_dict:
+      tensor_dict[fields.InputDataFields.next_image].set_shape([None, None, 3])
     return tensor_dict
 
   def _decode_instance_masks(self, keys_to_tensors):

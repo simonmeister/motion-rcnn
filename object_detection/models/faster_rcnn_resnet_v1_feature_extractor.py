@@ -81,7 +81,7 @@ class FasterRCNNResnetV1FeatureExtractor(
     """
     channel_means = [123.68, 116.779, 103.939]
     channel_means = tf.cond(
-        tf.shape(resized_inputs)[3] == 6,
+        tf.equal(tf.shape(resized_inputs)[3], 6),
         lambda: tf.constant(channel_means * 2, dtype=tf.float32),
         lambda: tf.constant(channel_means, dtype=tf.float32))
     return resized_inputs - channel_means # [[channel_means]]

@@ -178,9 +178,8 @@ def _create_tfexample(label_map_dict,
   camera_intrinsics = np.array([725.0, 620.5, 187.0], dtype=np.float32)
 
   if FLAGS.gt_rigid_flow_from_motion:
-    composed_flow = dense_flow_from_motion(depth, motions, masks,
-                                           camera_motion, camera_intrinsics)
-    example_flow = composed_flow
+    example_flow = dense_flow_from_motion(np.expand_dims(depth, 2), motions, masks,
+                                          camera_motion, camera_intrinsics)
   else:
     example_flow = flow
 

@@ -449,9 +449,10 @@ def visualize_flow(depth, motions, camera_motion, camera_intrinsics,
       tf.expand_dims(flow, 0)).eval()[0, :, :, :]
 
   flow_error_image = None
-  if groundtruth_flow:
+  if groundtruth_flow is not None:
     groundtruth_flow_mask = np.float32((groundtruth_flow[:, :, 0] *
                                         groundtruth_flow[:, :, 1]) != np.nan)
+    groundtruth_flow_mask = tf.expand_dims(groundtruth_flow_mask, 2)
     groundtruth_flow = np.nan_to_num(groundtruth_flow)
     flow_error_image = flow_util.flow_error_image(
         tf.expand_dims(flow, 0),

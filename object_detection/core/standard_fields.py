@@ -156,3 +156,7 @@ class TfExampleFields(object):
   object_segment_area = 'image/object/segment/area'
   instance_masks = 'image/segmentation/object'
   instance_classes = 'image/segmentation/object/class'
+  # Motion R-CNN
+  instance_motions = 'image/object/motion'
+  camera_motion = 'image/camera/motion'
+  camera_intrinsics = 'image/camera/intrinsics'
