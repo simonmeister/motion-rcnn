@@ -174,14 +174,13 @@ class FasterRCNNFeatureExtractor(object):
       A dict mapping variable names (to load from a checkpoint) to variables in
       the model graph.
     """
-    restore_conv1 = False # TODO make dependent on 3 vs 6 channel image
     variables_to_restore = {}
     for variable in tf.global_variables():
       for scope_name in [first_stage_feature_extractor_scope,
                          second_stage_feature_extractor_scope]:
         if variable.op.name.startswith(scope_name):
           var_name = variable.op.name.replace(scope_name + '/', '')
-          if restore_conv1 or not var_name.startswith('resnet_v1_50/conv1'):
+          if not 'conv1_adapted' in var_name and not 'pyramid' in var_name:
             variables_to_restore[var_name] = variable
     return variables_to_restore
 
@@ -1770,5 +1769,6 @@ class FasterRCNNMetaArch(model.DetectionModel):
     feature_extractor_variables = tf.contrib.framework.filter_variables(
         variables_to_restore,
         include_patterns=[self.first_stage_feature_extractor_scope,
-                          self.second_stage_feature_extractor_scope])
+                          self.second_stage_feature_extractor_scope],
+        exclude_patterns='conv1_adapted')
     return {var.op.name: var for var in feature_extractor_variables}

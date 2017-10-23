@@ -109,7 +109,7 @@ def _get_inputs(input_queue, num_classes):
     image = read_data[fields.InputDataFields.image]
     next_image = read_data.get(fields.InputDataFields.next_image)
     image_input = image
-    if next_image is not None: # TODO make this controllable by proto entry: load_next_image
+    if next_image is not None: # TODO make this controllable by proto entry inside of loader: load_next_image
       image_input = tf.concat([image, tf.expand_dims(next_image, 0)], 3)
     location_gt = read_data[fields.InputDataFields.groundtruth_boxes]
     classes_gt = tf.cast(read_data[fields.InputDataFields.groundtruth_classes],

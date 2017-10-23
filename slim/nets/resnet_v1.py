@@ -138,7 +138,8 @@ def resnet_v1(inputs,
               include_root_block=True,
               spatial_squeeze=True,
               reuse=None,
-              scope=None):
+              scope=None,
+              initial_conv_name='conv1'):
   """Generator for v1 ResNet models.
 
   This function generates a family of ResNet v1 models. See the resnet_v1_*()
@@ -183,7 +184,8 @@ def resnet_v1(inputs,
         information and can be removed.
     reuse: whether or not the network and its variables should be reused. To be
       able to reuse 'scope' must be given.
-    scope: Optional variable_scope.
+    scope: Optional variable_scope.,
+    initial_conv_name: Name of initial convolution.
 
   Returns:
     net: A rank-4 tensor of size [batch, height_out, width_out, channels_out].
@@ -211,7 +213,7 @@ def resnet_v1(inputs,
             if output_stride % 4 != 0:
               raise ValueError('The output_stride needs to be a multiple of 4.')
             output_stride /= 4
-          net = resnet_utils.conv2d_same(net, 64, 7, stride=2, scope='conv1')
+          net = resnet_utils.conv2d_same(net, 64, 7, stride=2, scope=initial_conv_name)
           net = slim.max_pool2d(net, [3, 3], stride=2, scope='pool1')
         net = resnet_utils.stack_blocks_dense(net, blocks, output_stride)
         if global_pool:
@@ -262,7 +264,8 @@ def resnet_v1_50(inputs,
                  output_stride=None,
                  spatial_squeeze=True,
                  reuse=None,
-                 scope='resnet_v1_50'):
+                 scope='resnet_v1_50',
+                 initial_conv_name='conv1'):
   """ResNet-50 model of [1]. See resnet_v1() for arg and return description."""
   blocks = [
       resnet_v1_block('block1', base_depth=64, num_units=3, stride=2),
@@ -273,7 +276,8 @@ def resnet_v1_50(inputs,
   return resnet_v1(inputs, blocks, num_classes, is_training,
                    global_pool=global_pool, output_stride=output_stride,
                    include_root_block=True, spatial_squeeze=spatial_squeeze,
-                   reuse=reuse, scope=scope)
+                   reuse=reuse, scope=scope,
+                   initial_conv_name=initial_conv_name)
 resnet_v1_50.default_image_size = resnet_v1.default_image_size
 
 
@@ -284,7 +288,8 @@ def resnet_v1_101(inputs,
                   output_stride=None,
                   spatial_squeeze=True,
                   reuse=None,
-                  scope='resnet_v1_101'):
+                  scope='resnet_v1_101',
+                  initial_conv_name='conv1'):
   """ResNet-101 model of [1]. See resnet_v1() for arg and return description."""
   blocks = [
       resnet_v1_block('block1', base_depth=64, num_units=3, stride=2),
@@ -295,7 +300,8 @@ def resnet_v1_101(inputs,
   return resnet_v1(inputs, blocks, num_classes, is_training,
                    global_pool=global_pool, output_stride=output_stride,
                    include_root_block=True, spatial_squeeze=spatial_squeeze,
-                   reuse=reuse, scope=scope)
+                   reuse=reuse, scope=scope,
+                   initial_conv_name=initial_conv_name)
 resnet_v1_101.default_image_size = resnet_v1.default_image_size
 
 
@@ -306,7 +312,8 @@ def resnet_v1_152(inputs,
                   output_stride=None,
                   spatial_squeeze=True,
                   reuse=None,
-                  scope='resnet_v1_152'):
+                  scope='resnet_v1_152',
+                  initial_conv_name='conv1'):
   """ResNet-152 model of [1]. See resnet_v1() for arg and return description."""
   blocks = [
       resnet_v1_block('block1', base_depth=64, num_units=3, stride=2),
@@ -317,7 +324,8 @@ def resnet_v1_152(inputs,
   return resnet_v1(inputs, blocks, num_classes, is_training,
                    global_pool=global_pool, output_stride=output_stride,
                    include_root_block=True, spatial_squeeze=spatial_squeeze,
-                   reuse=reuse, scope=scope)
+                   reuse=reuse, scope=scope,
+                   initial_conv_name=initial_conv_name)
 resnet_v1_152.default_image_size = resnet_v1.default_image_size
 
 
@@ -328,7 +336,8 @@ def resnet_v1_200(inputs,
                   output_stride=None,
                   spatial_squeeze=True,
                   reuse=None,
-                  scope='resnet_v1_200'):
+                  scope='resnet_v1_200',
+                  initial_conv_name='conv1'):
   """ResNet-200 model of [2]. See resnet_v1() for arg and return description."""
   blocks = [
       resnet_v1_block('block1', base_depth=64, num_units=3, stride=2),
@@ -339,5 +348,6 @@ def resnet_v1_200(inputs,
   return resnet_v1(inputs, blocks, num_classes, is_training,
                    global_pool=global_pool, output_stride=output_stride,
                    include_root_block=True, spatial_squeeze=spatial_squeeze,
-                   reuse=reuse, scope=scope)
+                   reuse=reuse, scope=scope,
+                   initial_conv_name=initial_conv_name)
 resnet_v1_200.default_image_size = resnet_v1.default_image_size

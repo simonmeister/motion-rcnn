@@ -157,6 +157,10 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
             tf.greater_equal(tf.shape(preprocessed_inputs)[2], 33)),
         ['image size must at least be 33 in both height and width.'])
 
+    initial_conv_name = 'conv1'
+    if preprocessed_inputs.get_shape().as_list()[3] != 3:
+      initial_conv_name = 'conv1_adapted'
+
     with tf.control_dependencies([shape_assert]):
       # Disables batchnorm for fine-tuning with smaller batch sizes.
       # TODO: Figure out if it is needed when image batch size is bigger.
@@ -174,7 +178,8 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
               global_pool=False,
               output_stride=None,
               spatial_squeeze=False,
-              scope=var_scope)
+              scope=var_scope,
+              initial_conv_name=initial_conv_name)
 
     return self._build_pyramid(activations, self._handles_map, scope)
 
