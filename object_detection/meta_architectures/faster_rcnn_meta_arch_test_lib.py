@@ -179,6 +179,7 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
     second_stage_localization_loss_weight = 1.0
     second_stage_classification_loss_weight = 1.0
     second_stage_mask_loss_weight = 1.0
+    second_stage_motion_loss_weight = 1.0
 
     hard_example_miner = None
     if hard_mining:
@@ -224,6 +225,8 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
         second_stage_classification_loss_weight,
         'second_stage_mask_loss_weight':
         second_stage_mask_loss_weight,
+        'second_stage_motion_loss_weight':
+        second_stage_motion_loss_weight,
         'hard_example_miner': hard_example_miner}
 
     return self._get_model(self._get_second_stage_box_predictor(

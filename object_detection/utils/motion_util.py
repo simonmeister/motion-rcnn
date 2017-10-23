@@ -38,22 +38,41 @@ def euler_to_rot(sin_x, sin_y, sin_z):
     return tf.matmul(rot_z, tf.matmul(rot_x, rot_y))
 
 
-def motion_losses(pred, gt):
+def motion_loss(pred, target, weights):
+  """
+  Args:
+    pred: tensor of shape [batch_size, num_anchors, 9]
+    target: tensor of shape [batch_size, num_anchors, 15]
+    weights: tensor of shape [batch_size, num_anchors]
+  Returns:
+    loss: a tensor of shape [batch_size, num_anchors]
+  """
+  batch_size, num_anchors = tf.unstack(tf.shape(pred)[:2])
+
+  err_angle, err_trans, err_pivot = _motion_losses(
+      tf.reshape(pred, [-1, 9]),
+      tf.reshape(target, [-1, 15]))
+
+  total_err = err_angle + err_trans + err_pivot
+  return tf.reshape(total_err, [batch_size, num_anchors]) * weights
+
+
+def _motion_losses(pred, target):
   """
   Args:
     pred: tensor of shape [num_predictions, 9]
-    gt: tensor of shape [num_predictions, 15]
+    target: tensor of shape [num_predictions, 15]
   Returns:
-    a tensor of shape [num_predictions] representing the loss
-    for each instance
+    three tensors of shape [num_predictions] representing the
+    angle, translation and pivot loss for each instance
   """
   rot = euler_to_rot(pred[:, 0], pred[:, 1], pred[:, 2])
   trans = pred[:, 3:6]
   pivot = pred[:, 6:9]
 
-  gt_rot = gt[:, 0:9]
-  gt_trans = gt[:, 9:12]
-  gt_pivot = gt[:, 12:15]
+  gt_rot = target[:, 0:9]
+  gt_trans = target[:, 9:12]
+  gt_pivot = target[:, 12:15]
 
   rot_T = tf.transpose(rot, [0, 2, 1])
   d_rot = tf.matmul(rot_T, gt_rot)
@@ -64,4 +83,4 @@ def motion_losses(pred, gt):
   err_trans = tf.norm(d_trans, axis=1)
   err_pivot = tf.norm(d_pivot, axis=1)
 
-  return err_angle + err_trans + err_pivot
+  return err_angle, err_trans, err_pivot

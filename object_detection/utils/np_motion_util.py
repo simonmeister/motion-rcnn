@@ -70,11 +70,11 @@ def dense_flow_from_motion(depth, motions, masks, camera_motion,
 
 def euler_to_rot(x, y, z):
   rot_x = np.array([[1, 0, 0],
-                    [0, np.cos(z), -np.sin(z)],
-                    [0, np.sin(z), np.cos(z)]],
+                    [0, np.cos(x), -np.sin(x)],
+                    [0, np.sin(x), np.cos(x)]],
                    dtype=np.float32)
-  rot_z = np.array([[np.cos(x), -np.sin(x), 0],
-                    [np.sin(x), np.cos(x), 0],
+  rot_z = np.array([[np.cos(z), -np.sin(z), 0],
+                    [np.sin(z), np.cos(z), 0],
                     [0, 0, 1]],
                    dtype=np.float32)
   rot_y = np.array([[np.cos(y), 0, np.sin(y)],

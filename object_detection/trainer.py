@@ -65,9 +65,10 @@ def _create_input_queue(batch_size_per_clone, create_tensor_dict_fn,
   float_images = tf.to_float(images)
   tensor_dict[fields.InputDataFields.image] = float_images
 
-  next_images = tensor_dict[fields.InputDataFields.next_image]
-  next_float_images = tf.to_float(next_images)
-  tensor_dict[fields.InputDataFields.next_image] = next_float_images
+  next_images = tensor_dict.get(fields.InputDataFields.next_image)
+  if next_images:
+    next_float_images = tf.to_float(next_images)
+    tensor_dict[fields.InputDataFields.next_image] = next_float_images
 
   if data_augmentation_options:
     # TODO handle next_image, depth and flow to re-enable augmentations
@@ -106,8 +107,10 @@ def _get_inputs(input_queue, num_classes):
   label_id_offset = 1
   def extract_images_and_targets(read_data):
     image = read_data[fields.InputDataFields.image]
-    next_image = read_data[fields.InputDataFields.next_image]
-    image_input = tf.concat([image, next_image], 3)
+    next_image = read_data.get(fields.InputDataFields.next_image)
+    image_input = image
+    if next_image:
+      image_input = tf.concat([image, next_image], 3)
     location_gt = read_data[fields.InputDataFields.groundtruth_boxes]
     classes_gt = tf.cast(read_data[fields.InputDataFields.groundtruth_classes],
                          tf.int32)

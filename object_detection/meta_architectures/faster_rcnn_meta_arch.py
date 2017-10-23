@@ -1,4 +1,4 @@
-# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+fa# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -215,6 +215,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
                second_stage_localization_loss_weight,
                second_stage_classification_loss_weight,
                second_stage_mask_loss_weight,
+               second_stage_motion_loss_weight,
                hard_example_miner,
                parallel_iterations=16):
     """FasterRCNNMetaArch Constructor.
@@ -297,6 +298,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
       second_stage_localization_loss_weight: A float
       second_stage_classification_loss_weight: A float
       second_stage_mask_loss_weight: A float
+      second_stage_motion_loss_weight: A float
       hard_example_miner:  A losses.HardExampleMiner object (can be None).
       parallel_iterations: (Optional) The number of iterations allowed to run
         in parallel for calls to tf.map_fn.
@@ -376,6 +378,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     self._second_stage_loc_loss_weight = second_stage_localization_loss_weight
     self._second_stage_cls_loss_weight = second_stage_classification_loss_weight
     self._second_stage_mask_loss_weight = second_stage_mask_loss_weight
+    self._second_stage_motion_loss_weight = second_stage_motion_loss_weight
     self._hard_example_miner = hard_example_miner
     self._parallel_iterations = parallel_iterations
 
@@ -1522,14 +1525,14 @@ class FasterRCNNMetaArch(model.DetectionModel):
         (or k-hot) tensors of shape [num_boxes, num_classes + 1] containing the
         class targets with the 0th index assumed to map to the background class.
       mask_predictions: (optional) a 4-D tensor with shape
-        [total_num_padded_proposals, num_classes, mask_height, mask_width]
+        [total_num_proposals, num_classes, mask_height, mask_width]
         containing instance mask predictions.
       groundtruth_masks_list: (optional) a list of 2-D tf.bool tensors of
         shape [num_boxes, height_in, width_in] containing instance
         masks with values in {0, 1}. Must be provided if mask_predictions is
         not None.
       motion_predictions: (optional) a 4-D tensor with shape
-        [total_num_padded_proposals, num_classes, num_motion_params]
+        [total_num_proposals, num_classes, num_motion_params]
         containing instance motion predictions.
       groundtruth_motions_list: (optional) a list of 2-D tf.float32 tensors of
         shape [num_boxes, height_in, width_in] containing instance
@@ -1559,20 +1562,26 @@ class FasterRCNNMetaArch(model.DetectionModel):
            self._detector_target_assigner, proposal_boxlists,
            groundtruth_boxlists, groundtruth_classes_with_background_list)
 
-      # We only predict refined location encodings for the non background
-      # classes, but we now pad it to make it compatible with the class
-      # predictions
       flat_cls_targets_with_background = tf.reshape(
-          batch_cls_targets_with_background,
-          [batch_size * self.max_num_proposals, -1])
-      refined_box_encodings_with_background = tf.pad(
-          refined_box_encodings, [[0, 0], [1, 0], [0, 0]])
-      refined_box_encodings_masked_by_class_targets = tf.boolean_mask(
-          refined_box_encodings_with_background,
-          tf.greater(flat_cls_targets_with_background, 0))
-      reshaped_refined_box_encodings = tf.reshape(
-          refined_box_encodings_masked_by_class_targets,
-          [batch_size, -1, 4])
+        batch_cls_targets_with_background,
+        [batch_size * self.max_num_proposals, -1])
+
+      def _mask_predictions_by_class_targets(predictions_for_all_classes,
+                                              out_shape_last_dim):
+        # We only predict refined location encodings for the non background
+        # classes, but we now pad it to make it compatible with the class
+        # predictions
+        predictions_with_background = tf.pad(
+            predictions_for_all_classes, [[0, 0], [1, 0], [0, 0]])
+        predictions_masked_by_class_targets = tf.boolean_mask(
+            predictions_with_background,
+            tf.greater(flat_cls_targets_with_background, 0))
+        reshaped_predictions = tf.reshape(
+            predictions_masked_by_class_targets,
+            [batch_size, -1, out_shape_last_dim])
+
+      reshaped_refined_box_encodings = (
+          _mask_predictions_by_class_targets(refined_box_encodings, 4))
 
       second_stage_loc_losses = self._second_stage_localization_loss(
           reshaped_refined_box_encodings,
@@ -1605,8 +1614,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
         if groundtruth_masks_list is None:
           raise RuntimeError('No groundtruth masks provided.')
 
-        num_classes, mask_height, mask_width = tf.unstack(
-            tf.shape(mask_predictions))[1:]
+        mask_height, mask_width = tf.unstack(
+            tf.shape(mask_predictions))[2:]
 
         (batch_mask_targets, batch_mask_weights
          ) = target_assigner.batch_assign_mask_targets(
@@ -1617,40 +1626,19 @@ class FasterRCNNMetaArch(model.DetectionModel):
             mask_height,
             mask_width)
 
-        batch_mask_predictions = tf.reshape(
-            mask_predictions,
-            [batch_size, -1, num_classes, mask_height, mask_width])
+        mask_dim = mask_height * mask_width
+        mask_predictions_flat = tf.reshape(mask_predictions,
+            [batch_size * self.max_num_proposals, -1, mask_dim])
 
-        mask_predictions_kth_class_list = []
-        for (groundtruth_classes_with_background,
-            match,
-            mask_predictions) in zip(
-              groundtruth_classes_with_background_list,
-              match_list,
-              tf.unstack(batch_mask_predictions)):
-          gt_inds_per_anchor = tf.maximum(match.match_results, 0)
-          gt_classes = tf.argmax(
-              groundtruth_classes_with_background[:, 1:],
-              axis=1)
-          gt_class_inds_per_anchor = tf.gather(gt_classes, gt_inds_per_anchor)
-          gather_inds = tf.stack(
-              [tf.range(self.max_num_proposals, dtype=tf.int64),
-               gt_class_inds_per_anchor],
-              axis=1)
-          mask_predictions_kth_class = tf.gather_nd(
-              mask_predictions, gather_inds)
-          mask_predictions_kth_class_list.append(mask_predictions_kth_class)
-
-        batch_mask_predictions_kth_class = tf.reshape(
-          tf.stack(mask_predictions_kth_class_list),
-          [batch_size, -1, mask_height * mask_width])
-        mask_loss_normalizer = normalizer * tf.cast(
-            mask_height * mask_width, tf.float32)
+        reshaped_mask_predictions = _mask_predictions_by_class_targets(
+            mask_predictions_flat, mask_dim)
+        #mask_loss_normalizer = normalizer * tf.cast(
+        #    mask_height * mask_width, tf.float32)
 
         second_stage_mask_losses = self._second_stage_mask_loss(
             batch_mask_predictions_kth_class,
             batch_mask_targets, weights=batch_mask_weights
-            ) / mask_loss_normalizer
+            ) / normalizer
         second_stage_mask_loss = tf.reduce_sum(
             tf.boolean_mask(second_stage_mask_losses, paddings_indicator))
 
@@ -1662,14 +1650,22 @@ class FasterRCNNMetaArch(model.DetectionModel):
       if motion_predictions is not None:
         if groundtruth_motions_list is None:
           raise RuntimeError('No groundtruth motions provided.')
+        if image_shape[3] != 6:
+          raise RuntimeError('Input image must be two concatenated RGB frames for motion prediction.')
 
         (batch_motion_targets, batch_motion_weights
          ) = target_assigner.batch_assign_motion_targets(
             groundtruth_motions_list,
             match_list)
-        # TODO convert to matrices, select class as above for masks
-        second_stage_motion_losses = motion_util.motion_losses(
-            flat_motion_preditions, flat_motion_targets) # TODO masking
+
+        num_motion_params = tf.unstack(tf.shape(motion_predictions))[-1]
+        reshaped_motion_predictions = _mask_predictions_by_class_targets(
+            motion_predictions, num_motion_params)
+
+        second_stage_motion_losses = motion_util.motion_loss(
+            reshaped_motion_predictions,
+            batch_motion_targets,
+            batch_motion_weights) / normalizer
 
         second_stage_motion_loss = tf.reduce_sum(
             tf.boolean_mask(second_stage_motion_losses, paddings_indicator))
@@ -1677,7 +1673,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
         loss_dict.update({
             'second_stage_motion_loss':
             (self._second_stage_motion_loss_weight * second_stage_motion_loss)
-        }) # TODO add self._second_stage_motion_loss_weight
+        })
 
     return loss_dict
 

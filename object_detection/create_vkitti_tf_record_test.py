@@ -21,6 +21,7 @@ from cityscapesscripts.helpers.labels import trainId2label
 from object_detection.data_decoders.tf_example_decoder import TfExampleDecoder
 from object_detection.utils.flow_util import flow_to_color, flow_error_image, flow_error_avg
 from object_detection.utils.np_motion_util import dense_flow_from_motion
+from object_detection.utils.visualization_utils import visualize_flow
 
 
 with tf.Graph().as_default():
@@ -61,29 +62,16 @@ with tf.Graph().as_default():
             image_np = np.squeeze(image_np)
             depth_np = example_np['groundtruth_depth']
 
-            # compose flow from motion gt
-            composed_flow_np = dense_flow_from_motion(
+            composed_flow_color_np, flow_error_np = visualize_flow(
                 depth_np,
                 example_np['groundtruth_instance_motions'],
-                gt_masks_np,
                 example_np['groundtruth_camera_motion'],
-                example_np['camera_intrinsics'])
-            composed_flow_const = tf.expand_dims(composed_flow_np, 0)
-            gt_flow_np = example_np['groundtruth_flow']
-            gt_mask_np = np.float32((gt_flow_np[:, :, 0] * gt_flow_np[:, :, 1]) != np.nan)
-            gt_flow_np = np.nan_to_num(gt_flow_np)
-            gt_flow_const = tf.expand_dims(gt_flow_np, 0)
-            gt_mask_const = tf.expand_dims(tf.expand_dims(gt_mask_np, 0), 3)
-            composed_flow_color = flow_to_color(composed_flow_const)[0, :, :, :]
-            flow_error = flow_error_image(composed_flow_const, gt_flow_const,
-                                          gt_mask_const, log_colors=False)[0, :, :, :]
-            epe = flow_error_avg(composed_flow_const, gt_flow_const, gt_mask_const)
-            composed_flow_color_np, flow_error_np, epe_np = sess.run(
-                [composed_flow_color, flow_error, epe])
+                example_np['camera_intrinsics'],
+                masks=gt_masks_np,
+                groundtruth_flow=example_np['groundtruth_flow'])
 
-
-            print('image_id: {}, instances: {}, shape: {}, flow EPE: {}'
-                  .format(img_id_np, num_instances_np, image_np.shape, epe_np))
+            print('image_id: {}, instances: {}, shape: {}'
+                  .format(img_id_np, num_instances_np, image_np.shape))
 
             # overlay masks
             for i in range(gt_boxes_np.shape[0]):
@@ -120,5 +108,5 @@ with tf.Graph().as_default():
             flow_im.save(os.path.join(out_dir, str(img_id_np) + '_flow.png'))
             depth_im.save(os.path.join(out_dir, str(img_id_np) + '_depth.png'))
             composed_flow_im.save(os.path.join(out_dir, str(img_id_np) + '_flow_from_motion.png'))
-            #flow_error_im.save(os.path.join(out_dir, str(img_id_np) + '_flow_error.png'))
+            flow_error_im.save(os.path.join(out_dir, str(img_id_np) + '_flow_error.png'))
         sess.close()

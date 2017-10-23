@@ -103,14 +103,24 @@ def _extract_prediction_tensors(model,
     if 'detection_masks' in tensor_dict:
       tensor_dict['groundtruth_instance_masks'] = input_dict[
           fields.InputDataFields.groundtruth_instance_masks]
+
     if 'detection_motions' in tensor_dict:
       tensor_dict['camera_intrinsics'] = input_dict[
-          fields.InputDataFields.camera_intrinsics]
+        fields.InputDataFields.camera_intrinsics]
+      if fields.InputDataFields.groundtruth_flow in input_dict:
+        tensor_dict['groundtruth_flow'] = input_dict[
+            fields.InputDataFields.groundtruth_flow]
       if not 'depth' in tensor_dict:
         tensor_dict['depth'] = input_dict[
             fields.InputDataFields.groundtruth_depth]
+      else:
+        tensor_dict['groundtruth_depth'] = input_dict[
+            fields.InputDataFields.groundtruth_depth]
       if not 'camera_motion' in tensor_dict:
         tensor_dict['camera_motion'] = input_dict[
+            fields.InputDataFields.groundtruth_camera_motion]
+      else:
+        tensor_dict['groundtruth_camera_motion'] = input_dict[
             fields.InputDataFields.groundtruth_camera_motion]
   return tensor_dict
 

@@ -277,7 +277,7 @@ def visualize_detection_results(result_dict,
         result_dict['camera_motion'],
         result_dict['camera_intrinsics'],
         masks=detection_masks,
-        groundtruth_flow=result_dict.get('groundtruth_flow')
+        groundtruth_flow=result_dict.get('groundtruth_flow'),
         boxes=detection_boxes)
     summary_value.append(
         tf.Summary.Value(tag=tag + '_flow', image=tf.Summary.Image(
