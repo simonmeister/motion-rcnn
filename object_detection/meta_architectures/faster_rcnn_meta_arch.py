@@ -1,4 +1,4 @@
-fa# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
+# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -81,6 +81,7 @@ from object_detection.core import standard_fields as fields
 from object_detection.core import target_assigner
 from object_detection.utils import ops
 from object_detection.utils import shape_utils
+from object_detection.utils import motion_util
 
 slim = tf.contrib.slim
 
@@ -920,7 +921,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     rpn_objectness_softmax_without_background = tf.nn.softmax(
         rpn_objectness_predictions_with_background_batch)[:, :, 1]
     clip_window = tf.to_float(tf.stack([0, 0, image_shape[1], image_shape[2]]))
-    (proposal_boxes, proposal_scores, _, _,
+    (proposal_boxes, proposal_scores, _, _, _,
      num_proposals) = post_processing.batch_multiclass_non_max_suppression(
          tf.expand_dims(proposal_boxes, axis=2),
          tf.expand_dims(rpn_objectness_softmax_without_background,
@@ -933,7 +934,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     if self._is_training:
       proposal_boxes = tf.stop_gradient(proposal_boxes)
       if not self._hard_example_miner:
-        (groundtruth_boxlists, groundtruth_classes_with_background_list, _
+        (groundtruth_boxlists, groundtruth_classes_with_background_list, _, _,
          ) = self._format_groundtruth_data(image_shape)
         (proposal_boxes, proposal_scores,
          num_proposals) = self._unpad_proposals_and_sample_box_classifier_batch(
@@ -1527,16 +1528,16 @@ class FasterRCNNMetaArch(model.DetectionModel):
       mask_predictions: (optional) a 4-D tensor with shape
         [total_num_proposals, num_classes, mask_height, mask_width]
         containing instance mask predictions.
-      groundtruth_masks_list: (optional) a list of 2-D tf.bool tensors of
+      groundtruth_masks_list: (optional) a list of 3-D tf.bool tensors of
         shape [num_boxes, height_in, width_in] containing instance
         masks with values in {0, 1}. Must be provided if mask_predictions is
         not None.
-      motion_predictions: (optional) a 4-D tensor with shape
+      motion_predictions: (optional) a 3-D tensor with shape
         [total_num_proposals, num_classes, num_motion_params]
         containing instance motion predictions.
       groundtruth_motions_list: (optional) a list of 2-D tf.float32 tensors of
-        shape [num_boxes, height_in, width_in] containing instance
-        masks with values in {0, 1}. Must be provided if mask_predictions is
+        shape [num_boxes, num_gt_motion_params] containing instance
+        motions. Must be provided if motion_predictions is
         not None.
 
     Returns:
@@ -1576,7 +1577,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
         predictions_masked_by_class_targets = tf.boolean_mask(
             predictions_with_background,
             tf.greater(flat_cls_targets_with_background, 0))
-        reshaped_predictions = tf.reshape(
+        return tf.reshape(
             predictions_masked_by_class_targets,
             [batch_size, -1, out_shape_last_dim])
 
@@ -1636,7 +1637,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
         #    mask_height * mask_width, tf.float32)
 
         second_stage_mask_losses = self._second_stage_mask_loss(
-            batch_mask_predictions_kth_class,
+            reshaped_mask_predictions,
             batch_mask_targets, weights=batch_mask_weights
             ) / normalizer
         second_stage_mask_loss = tf.reduce_sum(
@@ -1650,8 +1651,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
       if motion_predictions is not None:
         if groundtruth_motions_list is None:
           raise RuntimeError('No groundtruth motions provided.')
-        if image_shape[3] != 6:
-          raise RuntimeError('Input image must be two concatenated RGB frames for motion prediction.')
+        #if image_shape[3] != 6: # TODO put somewhere else
+        #  raise RuntimeError('Input image must be two concatenated RGB frames for motion prediction.')
 
         (batch_motion_targets, batch_motion_weights
          ) = target_assigner.batch_assign_motion_targets(

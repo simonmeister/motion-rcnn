@@ -218,7 +218,7 @@ class DetectionModel(object):
         Keypoints are assumed to be provided in normalized coordinates and
         missing keypoints should be encoded as NaN.
       groundtruth_motions_list: a list of 2-D tf.float32 tensors of
-        shape [max_detections, num_motion_params] containing motions
+        shape [max_detections, num_gt_motion_params] containing motions
         for each object.  If None, no motions are provided.
     """
     self._groundtruth_lists[fields.BoxListFields.boxes] = groundtruth_boxes_list

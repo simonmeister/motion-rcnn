@@ -531,7 +531,7 @@ def batch_assign_mask_targets(image_shape,
   return batch_mask_targets, batch_mask_weights
 
 
-def batch_assign_motion_targets(groundtruth_motions_list
+def batch_assign_motion_targets(groundtruth_motions_list,
                                 match_list):
   """Batched assignment of motion targets.
 
@@ -556,12 +556,12 @@ def batch_assign_motion_targets(groundtruth_motions_list
 
     gt_inds_per_anchor = tf.maximum(match.match_results, 0)
     motion_weights = tf.cast(match.matched_column_indicator(), tf.float32)
-    motion_targets = tf.gather(gt_inds_per_anchor, groundtruth_motions)
+    motion_targets = tf.gather(groundtruth_motions, gt_inds_per_anchor)
 
     motion_targets_list.append(motion_targets)
     motion_weights_list.append(motion_weights)
 
-  batch_motion_targets = tf.stack(motion_weights_list)
+  batch_motion_targets = tf.stack(motion_targets_list)
   batch_motion_weights = tf.stack(motion_weights_list)
 
   return batch_motion_targets, batch_motion_weights

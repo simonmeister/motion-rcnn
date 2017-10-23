@@ -6,23 +6,34 @@
 import tensorflow as tf
 
 
-def euler_to_rot(sin_x, sin_y, sin_z):
-    """Compose 3d rotations (in batches) from angle sines.
+def euler_to_rot(x, y, z):
+    """Compose 3d rotations (in batches) from angles.
     Args:
-      sin_{x, y, z}: tensor of shape (N, 1) with values in [-1, 1]
+      x, y, z: tensor of shape (N, 1) with values in [-1, 1]
     Returns:
       rotations: tensor of shape (N, 3, 3)
     """
+    x = tf.expand_dims(x, 1)
+    y = tf.expand_dims(y, 1)
+    z = tf.expand_dims(z, 1)
+
+    sin_x = tf.sin(x)
+    sin_y = tf.sin(y)
+    sin_z = tf.sin(z)
+
     zero = tf.zeros_like(sin_x)
     one = tf.ones_like(sin_x)
 
-    cos_x = tf.sqrt(1 - sin_x ** 2)
-    cos_y = tf.sqrt(1 - sin_y ** 2)
-    cos_z = tf.sqrt(1 - sin_z ** 2)
+    #cos_x = tf.sqrt(1 - sin_x ** 2)
+    #cos_y = tf.sqrt(1 - sin_y ** 2)
+    #cos_z = tf.sqrt(1 - sin_z ** 2)
+    cos_x = tf.cos(x)
+    cos_y = tf.cos(y)
+    cos_z = tf.cos(z)
 
     rot_x_1 = tf.stack([one, zero, zero], axis=2)
     rot_x_2 = tf.stack([zero, cos_x, -sin_x], axis=2)
-    rot_x_3 = tf.stack([zero, sin_x, cos_gx], axis=2)
+    rot_x_3 = tf.stack([zero, sin_x, cos_x], axis=2)
     rot_x = tf.concat([rot_x_1, rot_x_2, rot_x_3], axis=1)
 
     rot_y_1 = tf.stack([cos_y, zero, sin_y], axis=2)
@@ -35,7 +46,7 @@ def euler_to_rot(sin_x, sin_y, sin_z):
     rot_z_3 = tf.stack([zero, zero, one], axis=2)
     rot_z = tf.concat([rot_z_1, rot_z_2, rot_z_3], axis=1)
 
-    return tf.matmul(rot_z, tf.matmul(rot_x, rot_y))
+    return rot_z @ rot_x @ rot_y
 
 
 def motion_loss(pred, target, weights):
@@ -60,23 +71,25 @@ def motion_loss(pred, target, weights):
 def _motion_losses(pred, target):
   """
   Args:
-    pred: tensor of shape [num_predictions, 9]
-    target: tensor of shape [num_predictions, 15]
+    pred: tensor of shape [num_predictions, 9] containing predicted
+      angle sines, translation and pivot
+    target: tensor of shape [num_predictions, 15] containing
+      target rotation matrix (flat), translation and pivot.
   Returns:
-    three tensors of shape [num_predictions] representing the
-    angle, translation and pivot loss for each instance
+    losses: three-tuple of tensors of shape [num_predictions] representing the
+      rotation, translation and pivot loss for each instance
   """
   rot = euler_to_rot(pred[:, 0], pred[:, 1], pred[:, 2])
   trans = pred[:, 3:6]
   pivot = pred[:, 6:9]
 
-  gt_rot = target[:, 0:9]
+  gt_rot = tf.reshape(target[:, 0:9], [-1, 3, 3])
   gt_trans = target[:, 9:12]
   gt_pivot = target[:, 12:15]
 
   rot_T = tf.transpose(rot, [0, 2, 1])
-  d_rot = tf.matmul(rot_T, gt_rot)
-  d_trans = tf.matmul(rot_T, gt_trans - trans)
+  d_rot = rot_T @ gt_rot
+  d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]))
   d_pivot = gt_pivot - pivot
 
   err_angle = tf.acos(tf.clip_by_value((tf.trace(d_rot) - 1) / 2, -1, 1))

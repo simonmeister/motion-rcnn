@@ -120,7 +120,7 @@ message FasterRcnn {
   optional float second_stage_mask_loss_weight = 27 [default=1.0];
 
   // Second stage motion loss weight (loss disabled if no motions are predicted)
-  optional float second_stage_mask_loss_weight = 28 [default=1.0];
+  optional float second_stage_motion_loss_weight = 28 [default=1.0];
 
   // If not left to default, applies hard example mining.
   optional HardExampleMiner hard_example_miner = 29;

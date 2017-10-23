@@ -698,7 +698,7 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
          [-10, 13],
          [-10, 12],
          [10, -11]]], dtype=tf.float32)
-    image_shape = tf.constant([batch_size, 32, 32, 3], dtype=tf.int32)
+    image_shape = tf.constant([batch_size, 32, 32, 6], dtype=tf.int32)
 
     num_proposals = tf.constant([6, 6], dtype=tf.int32)
     proposal_boxes = tf.constant(
@@ -749,6 +749,39 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
        [rand, rand],
        [mask2, rand]]), dtype=tf.float32)
 
+    from object_detection.utils.np_motion_util import euler_to_rot
+    rot1 = euler_to_rot(0, np.pi/3, 0).flatten().tolist()
+    rot2 = euler_to_rot(0, np.pi, -np.pi).flatten().tolist()
+    rot3 = euler_to_rot(-np.pi/2, 0, np.pi/2).flatten().tolist()
+    rot4 = euler_to_rot(0, 0, 0).flatten().tolist()
+    tp1 = [0, 0, 0, 1, -2, 3]
+    tp2 = [0.1, -0.2, 0, 2, 5, -3]
+    tp3 = [1.0, -0.1, -0.2, -4, 1, 0]
+    tp4 = [0, 5.0, -0.1, 0, 10.0, 1.0]
+    motion1_angles = [0, np.pi/3, 0] + tp1
+    motion2_angles = [0, np.pi, -np.pi] + tp2
+    motion3_angles = [-np.pi/2, 0, np.pi/2] + tp3
+    motion4_angles = [0, 0, 0] + tp4
+    motion1 = rot1 + tp1
+    motion2 = rot2 + tp2
+    motion3 = rot3 + tp3
+    motion4 = rot4 + tp4
+    rand = np.zeros([9])
+
+    motion_predictions = tf.constant(np.array(
+      [[motion1_angles, rand], # first image
+       [rand, rand],
+       [rand, rand],
+       [rand, motion4_angles],
+       [motion1_angles, rand],
+       [rand, rand],
+       [rand, rand], # second image
+       [motion2_angles, rand],
+       [motion3_angles, rand],
+       [rand, rand],
+       [rand, rand],
+       [motion2_angles, rand]]), dtype=tf.float32)
+
     groundtruth_boxes_list = [
         tf.constant([[0, 0, .5, .5], [.5, .5, 1, 1]], dtype=tf.float32),
         tf.constant([[0, .5, .5, 1], [.5, 0, 1, .5]], dtype=tf.float32)]
@@ -765,6 +798,10 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
     groundtruth_masks_list = [tf.constant(np.array([im1_mask1, im1_mask2]), dtype=tf.bool),
                               tf.constant(np.array([im2_mask1, im2_mask2]), dtype=tf.bool)]
 
+    groundtruth_motions_list = [
+        tf.constant([motion1, motion4], dtype=tf.float32),
+        tf.constant([motion2, motion3], dtype=tf.float32)]
+
     prediction_dict = {
         'rpn_box_encodings': rpn_box_encodings,
         'rpn_objectness_predictions_with_background':
@@ -775,11 +812,13 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
         'class_predictions_with_background': class_predictions_with_background,
         'proposal_boxes': proposal_boxes,
         'num_proposals': num_proposals,
-        'mask_predictions': mask_predictions
+        'mask_predictions': mask_predictions,
+        'motion_predictions': motion_predictions
     }
     model.provide_groundtruth(groundtruth_boxes_list,
                               groundtruth_classes_list,
-                              groundtruth_masks_list)
+                              groundtruth_masks_list,
+                              groundtruth_motions_list=groundtruth_motions_list)
     loss_dict = model.loss(prediction_dict)
 
     with self.test_session() as sess:
@@ -789,6 +828,7 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
       self.assertAllClose(loss_dict_out['second_stage_localization_loss'], 0)
       self.assertAllClose(loss_dict_out['second_stage_classification_loss'], 0)
       self.assertAllClose(loss_dict_out['second_stage_mask_loss'], 0)
+      self.assertAllClose(loss_dict_out['second_stage_motion_loss'], 0)
 
   def test_loss_full_zero_padded_proposals(self):
     model = self._build_model(
