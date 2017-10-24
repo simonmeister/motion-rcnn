@@ -6,30 +6,33 @@
 import tensorflow as tf
 
 
-def euler_to_rot(x, y, z):
+def euler_to_rot(sin_x, sin_y, sin_z):
     """Compose 3d rotations (in batches) from angles.
     Args:
       x, y, z: tensor of shape (N, 1) with values in [-1, 1]
     Returns:
       rotations: tensor of shape (N, 3, 3)
     """
-    x = tf.expand_dims(x, 1)
-    y = tf.expand_dims(y, 1)
-    z = tf.expand_dims(z, 1)
+    #x = tf.expand_dims(x, 1)
+    #y = tf.expand_dims(y, 1)
+    #z = tf.expand_dims(z, 1)
 
-    sin_x = tf.sin(x)
-    sin_y = tf.sin(y)
-    sin_z = tf.sin(z)
+    #sin_x = tf.sin(x)
+    #sin_y = tf.sin(y)
+    #sin_z = tf.sin(z)
+    sin_x = tf.expand_dims(sin_x, 1)
+    sin_y = tf.expand_dims(sin_y, 1)
+    sin_z = tf.expand_dims(sin_z, 1)
 
     zero = tf.zeros_like(sin_x)
     one = tf.ones_like(sin_x)
 
-    #cos_x = tf.sqrt(1 - sin_x ** 2)
-    #cos_y = tf.sqrt(1 - sin_y ** 2)
-    #cos_z = tf.sqrt(1 - sin_z ** 2)
-    cos_x = tf.cos(x)
-    cos_y = tf.cos(y)
-    cos_z = tf.cos(z)
+    cos_x = tf.sqrt(1 - sin_x ** 2)
+    cos_y = tf.sqrt(1 - sin_y ** 2)
+    cos_z = tf.sqrt(1 - sin_z ** 2)
+    #cos_x = tf.cos(x)
+    #cos_y = tf.cos(y)
+    #cos_z = tf.cos(z)
 
     rot_x_1 = tf.stack([one, zero, zero], axis=2)
     rot_x_2 = tf.stack([zero, cos_x, -sin_x], axis=2)
@@ -79,9 +82,10 @@ def _motion_losses(pred, target):
     losses: three-tuple of tensors of shape [num_predictions] representing the
       rotation, translation and pivot loss for each instance
   """
-  rot = euler_to_rot(pred[:, 0], pred[:, 1], pred[:, 2])
-  trans = pred[:, 3:6]
-  pivot = pred[:, 6:9]
+  pred = predicted_motion_angles_to_matrices(pred)
+  rot = tf.reshape(pred[:, 0:9], [-1, 3, 3])
+  trans = pred[:, 9:12]
+  pivot = pred[:, 12:15]
 
   gt_rot = tf.reshape(target[:, 0:9], [-1, 3, 3])
   gt_trans = target[:, 9:12]
@@ -100,7 +104,10 @@ def _motion_losses(pred, target):
 
 
 def predicted_motion_angles_to_matrices(pred):
-  """Convert predicted motions to use matrix representation for rotations."""
-  rot = euler_to_rot(pred[:, 0], pred[:, 1], pred[:, 2])
+  """Convert predicted motions to use matrix representation for rotations.
+  Also restrict range of angle sines to [-1, 1]"""
+  #angle_sines = tf.maximum(tf.minimum(pred[:, 0:3], 2), 0) - 1
+  angle_sines = tf.clip_by_value(pred[:, 0:3], -1, 1)
+  rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
   rot_flat = tf.reshape(rot, [-1, 9])
   return tf.concat([rot_flat, pred[:, 3:]], axis=1)

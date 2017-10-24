@@ -751,16 +751,16 @@ class FasterRCNNMetaArchTestBase(tf.test.TestCase):
 
     from object_detection.utils.np_motion_util import euler_to_rot
     rot1 = euler_to_rot(0, np.pi/3, 0).flatten().tolist()
-    rot2 = euler_to_rot(0, np.pi, -np.pi).flatten().tolist()
-    rot3 = euler_to_rot(-np.pi/2, 0, np.pi/2).flatten().tolist()
+    rot2 = euler_to_rot(0, np.pi/4, -np.pi/4).flatten().tolist()
+    rot3 = euler_to_rot(-np.pi/4, 0, np.pi/3).flatten().tolist()
     rot4 = euler_to_rot(0, 0, 0).flatten().tolist()
     tp1 = [0, 0, 0, 1, -2, 3]
     tp2 = [0.1, -0.2, 0, 2, 5, -3]
     tp3 = [1.0, -0.1, -0.2, -4, 1, 0]
     tp4 = [0, 5.0, -0.1, 0, 10.0, 1.0]
-    motion1_angles = [0, np.pi/3, 0] + tp1
-    motion2_angles = [0, np.pi, -np.pi] + tp2
-    motion3_angles = [-np.pi/2, 0, np.pi/2] + tp3
+    motion1_angles = [0, np.sin(np.pi/3), 0] + tp1
+    motion2_angles = [0, np.sin(np.pi/4), np.sin(-np.pi/4)] + tp2
+    motion3_angles = [np.sin(-np.pi/4), 0, np.sin(np.pi/3)] + tp3
     motion4_angles = [0, 0, 0] + tp4
     motion1 = rot1 + tp1
     motion2 = rot2 + tp2

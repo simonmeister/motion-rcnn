@@ -111,8 +111,8 @@ class FasterRCNNResnetV1FeatureExtractor(
         ['image size must at least be 33 in both height and width.'])
 
     initial_conv_name = 'conv1'
-    #if preprocessed_inputs.get_shape().as_list()[3] != 3:
-    #  initial_conv_name = 'conv1_adapted'
+    if preprocessed_inputs.get_shape().as_list()[3] != 3:
+      initial_conv_name = 'conv1_adapted'
 
     with tf.control_dependencies([shape_assert]):
       # Disables batchnorm for fine-tuning with smaller batch sizes.
