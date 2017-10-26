@@ -5,6 +5,9 @@
 # --------------------------------------------------------
 import numpy as np
 
+from object_detection.utils import np_box_list
+from object_detection.utils import np_box_list_ops
+
 
 def _pixels_to_3d(x, y, d, camera_intrinsics):
     f, x0, y0 = camera_intrinsics
@@ -82,3 +85,74 @@ def euler_to_rot(x, y, z):
                     [-np.sin(y), 0, np.cos(y)]],
                    dtype=np.float32)
   return rot_z @ rot_x @ rot_y
+
+
+def _motion_errors(pred, target):
+  """
+  Args:
+    pred: array of shape [num_predictions, 15] containing predicted
+      rotation matrix (flat), translation and pivot
+    target: array of shape [num_predictions, 15] containing
+      target rotation matrix (flat), translation and pivot.
+  Returns:
+    error_dict: dictionary of floats representing the mean
+      rotation, translation, pivot, relative rotation and relative translation
+      errors
+  """
+  def _rotation_angle(mat):
+    return np.acos(np.clip((np.trace(mat, axis1=1, axis2=2) - 1) / 2, -1, 1))
+
+  rot = np.reshape(pred[:, 0:9], [-1, 3, 3])
+  trans = pred[:, 9:12]
+  pivot = pred[:, 12:15]
+
+  gt_rot = np.reshape(target[:, 0:9], [-1, 3, 3])
+  gt_trans = target[:, 9:12]
+  gt_pivot = target[:, 12:15]
+
+  rot_T = np.transpose(rot, [0, 2, 1])
+  d_rot = rot_T @ gt_rot
+  d_trans = np.squeeze(rot_T @ np.reshape(gt_trans - trans, [-1, 3, 1]))
+  d_pivot = gt_pivot - pivot
+
+  err_angle = _rotation_angle(d_rot)
+  err_trans = np.norm(d_trans, axis=1)
+  err_pivot = np.norm(d_pivot, axis=1)
+
+  err_rel_trans = err_trans / np.norm(gt_trans, axis=1)
+  err_rel_angle = err_angle / _rotation_angle(gt_rot)
+
+  mean_angle = np.mean(err_angle)
+  mean_trans = np.mean(err_trans)
+  mean_pivot = np.mean(err_pivot)
+  mean_rel_angle = np.mean(rel_angle)
+  mean_rel_trans = np.mean(rel_trans)
+
+  error_dict = {
+      'mRot': mean_angle,
+      'mTrans': mean_trans,
+      'mPivot': mean_pivot,
+      'mRelRot': mean_rel_angle,
+      'mRelTrans': mean_rel_trans}
+
+  return {k, np.asscalar(v) for (k, v) in error_dict.items()}
+
+
+def evaluate(gt_boxes, gt_motions, detected_boxes, detected_motions,
+             matching_iou_threshold=.5):
+  gt_boxlist = np_box_list.BoxList(gt_boxes)
+  detected_boxlist = np_box_list.BoxList(detected_boxes)
+
+  iou = np_box_list_ops.iou(detected_boxlist, gt_boxlist)
+  max_overlap_gt_ids = np.argmax(iou, axis=1)
+
+  pred_list = []
+  target_list = []
+  for i in range(detected_boxlist.num_boxes()):
+    gt_id = max_overlap_gt_ids[i]
+    if iou[i, gt_id] >= matching_iou_threshold:
+      pred_list.append(detected_motions[i, :])
+      target_list.append(gt_boxes[gt_id, :])
+  pred = np.stack(pred_list, axis=0)
+  target = np.stack(target_list, axis=0)
+  return _motion_errors(pred, target)

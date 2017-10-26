@@ -26,6 +26,7 @@ import tensorflow as tf
 from object_detection.utils import label_map_util
 from object_detection.utils import object_detection_evaluation
 from object_detection.utils import visualization_utils as vis_utils
+from object_detection.utils import np_motion_util as np_motion_util
 
 slim = tf.contrib.slim
 
@@ -158,6 +159,25 @@ def evaluate_detection_results_pascal_voc(result_lists,
             'PerformanceByCategory/CorLoc@{}IOU/{}'.format(
                 iou_thres, category_index[idx]['name']))
         metrics[display_name] = per_class_corloc[idx]
+
+  if 'detection_motions' in result_lists:
+    motion_eval_dicts = []
+    for i in range(len(image_ids)):
+      motion_eval_dict = np_motion_util.evaluate(
+          result_lists['groundtruth_boxes'][i],
+          result_lists['groundtruth_instance_motions'][i],
+          result_lists['detection_boxes'][i],
+          result_lists['detection_motions'][i],
+          matching_iou_threshold=iou_thres)
+      motion_eval_dicts.append(motion_eval_dict)
+    motion_eval_dict = {}
+    for k in motion_eval_dicts[0].keys():
+      motion_eval_dict[k] = sum(
+          [d[k] for d in motion_eval_dicts]) / len(image_ids)
+    for k, v in motion_eval_dict.items():
+      display_name = 'Motion/Error@{}IOU/{}'.format(iou_thres, k)
+      metrics[display_name] = v
+
   return metrics
 
 

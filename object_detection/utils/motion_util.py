@@ -82,7 +82,7 @@ def _motion_losses(pred, target):
     losses: three-tuple of tensors of shape [num_predictions] representing the
       rotation, translation and pivot loss for each instance
   """
-  pred = predicted_motion_angles_to_matrices(pred)
+  pred = postprocess_detection_motions(pred)
   rot = tf.reshape(pred[:, 0:9], [-1, 3, 3])
   trans = pred[:, 9:12]
   pivot = pred[:, 12:15]
@@ -103,9 +103,9 @@ def _motion_losses(pred, target):
   return err_angle, err_trans, err_pivot
 
 
-def predicted_motion_angles_to_matrices(pred):
+def postprocess_detection_motions(pred):
   """Convert predicted motions to use matrix representation for rotations.
-  Also restrict range of angle sines to [-1, 1]"""
+  Restrict range of angle sines to [-1, 1]"""
   #angle_sines = tf.maximum(tf.minimum(pred[:, 0:3], 2), 0) - 1
   angle_sines = tf.clip_by_value(pred[:, 0:3], -1, 1)
   rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])

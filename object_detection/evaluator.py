@@ -96,7 +96,7 @@ def _extract_prediction_tensors(model,
     detection_motions = tf.squeeze(detections['detection_motions'],
                                    axis=0)
     detection_motions_with_matrices = (
-        motion_util.predicted_motion_angles_to_matrices(detection_motions))
+        motion_util.postprocess_detection_motions(detection_motions))
     tensor_dict['detection_motions'] = detection_motions_with_matrices
 
   # load groundtruth fields into tensor_dict
@@ -120,6 +120,8 @@ def _extract_prediction_tensors(model,
           fields.InputDataFields.groundtruth_instance_masks]
 
     if 'detection_motions' in tensor_dict:
+      tensor_dict['groundtruth_instance_motions'] = input_dict[
+          fields.InputDataFields.groundtruth_instance_motions]
       tensor_dict['camera_intrinsics'] = input_dict[
         fields.InputDataFields.camera_intrinsics]
       if fields.InputDataFields.groundtruth_flow in input_dict:
