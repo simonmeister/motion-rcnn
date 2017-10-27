@@ -6,33 +6,36 @@
 import tensorflow as tf
 
 
-def euler_to_rot(sin_x, sin_y, sin_z):
+def euler_to_rot(x, y, z, sine_inputs=True):
     """Compose 3d rotations (in batches) from angles.
     Args:
       x, y, z: tensor of shape (N, 1) with values in [-1, 1]
+      sine_inputs: if true, inputs are given as angle sines,
+        if false, as raw angles in radians.
     Returns:
       rotations: tensor of shape (N, 3, 3)
     """
-    #x = tf.expand_dims(x, 1)
-    #y = tf.expand_dims(y, 1)
-    #z = tf.expand_dims(z, 1)
+    x = tf.expand_dims(x, 1)
+    y = tf.expand_dims(y, 1)
+    z = tf.expand_dims(z, 1)
 
-    #sin_x = tf.sin(x)
-    #sin_y = tf.sin(y)
-    #sin_z = tf.sin(z)
-    sin_x = tf.expand_dims(sin_x, 1)
-    sin_y = tf.expand_dims(sin_y, 1)
-    sin_z = tf.expand_dims(sin_z, 1)
+    if sine_inputs:
+      sin_x = x
+      sin_y = y
+      sin_z = z
+      cos_x = tf.sqrt(1 - sin_x ** 2)
+      cos_y = tf.sqrt(1 - sin_y ** 2)
+      cos_z = tf.sqrt(1 - sin_z ** 2)
+    else:
+      sin_x = tf.sin(x)
+      sin_y = tf.sin(y)
+      sin_z = tf.sin(z)
+      cos_x = tf.cos(x)
+      cos_y = tf.cos(y)
+      cos_z = tf.cos(z)
 
     zero = tf.zeros_like(sin_x)
     one = tf.ones_like(sin_x)
-
-    cos_x = tf.sqrt(1 - sin_x ** 2)
-    cos_y = tf.sqrt(1 - sin_y ** 2)
-    cos_z = tf.sqrt(1 - sin_z ** 2)
-    #cos_x = tf.cos(x)
-    #cos_y = tf.cos(y)
-    #cos_z = tf.cos(z)
 
     rot_x_1 = tf.stack([one, zero, zero], axis=2)
     rot_x_2 = tf.stack([zero, cos_x, -sin_x], axis=2)
@@ -106,7 +109,7 @@ def _motion_losses(pred, target):
 def postprocess_detection_motions(pred):
   """Convert predicted motions to use matrix representation for rotations.
   Restrict range of angle sines to [-1, 1]"""
-  #angle_sines = tf.maximum(tf.minimum(pred[:, 0:3], 2), 0) - 1
+  #angle_sines = pred
   angle_sines = tf.clip_by_value(pred[:, 0:3], -1, 1)
   rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
   rot_flat = tf.reshape(rot, [-1, 9])

@@ -91,16 +91,16 @@ def _motion_errors(pred, target):
   """
   Args:
     pred: array of shape [num_predictions, 15] containing predicted
-      rotation matrix (flat), translation and pivot
+      rotation matrix, translation and pivot
     target: array of shape [num_predictions, 15] containing
-      target rotation matrix (flat), translation and pivot.
+      target rotation matrix, translation and pivot.
   Returns:
     error_dict: dictionary of floats representing the mean
       rotation, translation, pivot, relative rotation and relative translation
       errors
   """
   def _rotation_angle(mat):
-    return np.acos(np.clip((np.trace(mat, axis1=1, axis2=2) - 1) / 2, -1, 1))
+    return np.arccos(np.clip((np.trace(mat, axis1=1, axis2=2) - 1) / 2, -1, 1))
 
   rot = np.reshape(pred[:, 0:9], [-1, 3, 3])
   trans = pred[:, 9:12]
@@ -116,26 +116,37 @@ def _motion_errors(pred, target):
   d_pivot = gt_pivot - pivot
 
   err_angle = _rotation_angle(d_rot)
-  err_trans = np.norm(d_trans, axis=1)
-  err_pivot = np.norm(d_pivot, axis=1)
+  err_trans = np.linalg.norm(d_trans, axis=1)
+  err_pivot = np.linalg.norm(d_pivot, axis=1)
 
-  err_rel_trans = err_trans / np.norm(gt_trans, axis=1)
+  np.seterr(divide='ignore')
   err_rel_angle = err_angle / _rotation_angle(gt_rot)
+  err_rel_trans = err_trans / np.linalg.norm(gt_trans, axis=1)
+  err_rel_angle = err_rel_angle[np.isfinite(err_rel_angle)]
+  err_rel_trans = err_rel_trans[np.isfinite(err_rel_trans)]
 
-  mean_angle = np.mean(err_angle)
+  mean_angle = np.mean(np.degrees(err_angle))
   mean_trans = np.mean(err_trans)
   mean_pivot = np.mean(err_pivot)
-  mean_rel_angle = np.mean(rel_angle)
-  mean_rel_trans = np.mean(rel_trans)
+
+  if len(err_rel_angle) > 0:
+    mean_rel_angle = np.mean(err_rel_angle)
+  else:
+    mean_rel_angle = np.array([0])
+    
+  if len(err_rel_trans) > 0:
+    mean_rel_trans = np.mean(err_rel_trans)
+  else:
+    mean_rel_trans = np.array([0])
 
   error_dict = {
-      'mRot': mean_angle,
+      'mAngle': mean_angle,
       'mTrans': mean_trans,
       'mPivot': mean_pivot,
-      'mRelRot': mean_rel_angle,
+      'mRelAngle': mean_rel_angle,
       'mRelTrans': mean_rel_trans}
 
-  return {k, np.asscalar(v) for (k, v) in error_dict.items()}
+  return {k: np.asscalar(v) for (k, v) in error_dict.items()}
 
 
 def evaluate(gt_boxes, gt_motions, detected_boxes, detected_motions,
@@ -152,7 +163,14 @@ def evaluate(gt_boxes, gt_motions, detected_boxes, detected_motions,
     gt_id = max_overlap_gt_ids[i]
     if iou[i, gt_id] >= matching_iou_threshold:
       pred_list.append(detected_motions[i, :])
-      target_list.append(gt_boxes[gt_id, :])
+      target_list.append(gt_motions[gt_id, :])
+  if len(pred_list) == 0:
+    return {
+        'mAngle': 0,
+        'mTrans': 0,
+        'mPivot': 0,
+        'mRelAngle': 0,
+        'mRelTrans': 0}
   pred = np.stack(pred_list, axis=0)
   target = np.stack(target_list, axis=0)
   return _motion_errors(pred, target)

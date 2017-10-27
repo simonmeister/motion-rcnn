@@ -163,13 +163,16 @@ def evaluate_detection_results_pascal_voc(result_lists,
   if 'detection_motions' in result_lists:
     motion_eval_dicts = []
     for i in range(len(image_ids)):
-      motion_eval_dict = np_motion_util.evaluate(
-          result_lists['groundtruth_boxes'][i],
-          result_lists['groundtruth_instance_motions'][i],
-          result_lists['detection_boxes'][i],
-          result_lists['detection_motions'][i],
-          matching_iou_threshold=iou_thres)
-      motion_eval_dicts.append(motion_eval_dict)
+      detection_boxes = result_lists['detection_boxes'][i]
+      gt_boxes = result_lists['groundtruth_boxes'][i]
+      if len(detection_boxes) > 0 and len(gt_boxes) > 0:
+        motion_eval_dict = np_motion_util.evaluate(
+            gt_boxes,
+            result_lists['groundtruth_instance_motions'][i],
+            detection_boxes,
+            result_lists['detection_motions'][i],
+            matching_iou_threshold=iou_thres)
+        motion_eval_dicts.append(motion_eval_dict)
     motion_eval_dict = {}
     for k in motion_eval_dicts[0].keys():
       motion_eval_dict[k] = sum(
