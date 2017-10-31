@@ -166,7 +166,7 @@ def evaluate_detection_results_pascal_voc(result_lists,
       detection_boxes = result_lists['detection_boxes'][i]
       gt_boxes = result_lists['groundtruth_boxes'][i]
       if len(detection_boxes) > 0 and len(gt_boxes) > 0:
-        motion_eval_dict = np_motion_util.evaluate(
+        motion_eval_dict = np_motion_util.evaluate_instance_motions(
             gt_boxes,
             result_lists['groundtruth_instance_motions'][i],
             detection_boxes,
@@ -179,6 +179,21 @@ def evaluate_detection_results_pascal_voc(result_lists,
           [d[k] for d in motion_eval_dicts]) / len(image_ids)
     for k, v in motion_eval_dict.items():
       display_name = 'Motion/Error@{}IOU/{}'.format(iou_thres, k)
+      metrics[display_name] = v
+
+  if 'camera_motion' in result_lists:
+    motion_eval_dicts = []
+    for i in range(len(image_ids)):
+      motion_eval_dict = np_motion_util.evaluate_camera_motion(
+          result_lists['camera_motion'][i],
+          result_lists['groundtruth_camera_motion'][i])
+      motion_eval_dicts.append(motion_eval_dict)
+    motion_eval_dict = {}
+    for k in motion_eval_dicts[0].keys():
+      motion_eval_dict[k] = sum(
+          [d[k] for d in motion_eval_dicts]) / len(image_ids)
+    for k, v in motion_eval_dict.items():
+      display_name = 'CameraMotion/Error@{}IOU/{}'.format(iou_thres, k)
       metrics[display_name] = v
 
   return metrics
@@ -299,7 +314,7 @@ def visualize_detection_results(result_dict,
           result_dict['depth'],
           detection_motions,
           detection_scores,
-          result_dict['camera_motion'],
+          result_dict['groundtruth_camera_motion'],
           result_dict['camera_intrinsics'],
           masks=detection_masks,
           groundtruth_flow=result_dict.get('groundtruth_flow'),

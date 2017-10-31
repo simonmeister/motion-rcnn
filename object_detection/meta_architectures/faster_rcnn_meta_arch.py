@@ -219,6 +219,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
                second_stage_mask_loss_weight,
                second_stage_motion_loss_weight,
                hard_example_miner,
+               first_stage_predict_camera_motion,
+               first_stage_camera_motion_loss_weight,
+               first_stage_camera_motion_arg_scope,
                parallel_iterations=16):
     """FasterRCNNMetaArch Constructor.
 
@@ -302,6 +305,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
       second_stage_mask_loss_weight: A float
       second_stage_motion_loss_weight: A float
       hard_example_miner:  A losses.HardExampleMiner object (can be None).
+      first_stage_predict_camera_motion: Whether to predict a global camera motion
+      first_stage_camera_motion_loss_weight: A float
+      first_stage_camera_motion_arg_scope: Slim arg_scope for camera motion fc layers.
       parallel_iterations: (Optional) The number of iterations allowed to run
         in parallel for calls to tf.map_fn.
     Raises:
@@ -382,6 +388,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
     self._second_stage_mask_loss_weight = second_stage_mask_loss_weight
     self._second_stage_motion_loss_weight = second_stage_motion_loss_weight
     self._hard_example_miner = hard_example_miner
+    self._first_stage_predict_camera_motion = first_stage_predict_camera_motion
+    self._first_stage_camera_motion_loss_weight = first_stage_camera_motion_loss_weight
+    self._first_stage_camera_motion_arg_scope = first_stage_camera_motion_arg_scope
     self._parallel_iterations = parallel_iterations
 
   @property
@@ -510,6 +519,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
         11) mask_predictions: (optional) a 4-D tensor with shape
           [total_num_padded_proposals, num_classes, mask_height, mask_width]
           containing instance mask predictions.
+        12) motion_predictions: (optional) a 4-D tensor with shape
+          [total_num_padded_proposals, num_classes, num_motion_params]
+          containing instance mask predictions.
     """
     (rpn_box_predictor_features, rpn_features_to_crop, anchors_boxlist,
      image_shape) = self._extract_rpn_feature_maps(preprocessed_inputs)
@@ -540,12 +552,33 @@ class FasterRCNNMetaArch(model.DetectionModel):
         'anchors': anchors
     }
 
+    if self._first_stage_predict_camera_motion:
+      prediction_dict.update(self._predict_camera_motion(
+          rpn_box_predictor_features))
+
     if not self._first_stage_only:
       prediction_dict.update(self._predict_second_stage(
           rpn_box_encodings,
           rpn_objectness_predictions_with_background,
           rpn_features_to_crop,
           anchors, image_shape))
+    return prediction_dict
+
+  def _predict_camera_motion(self, rpn_box_predictor_features):
+    bottleneck_features = self._feature_extractor._extract_bottleneck_features(
+        rpn_box_predictor_features[0], scope='BottleneckFeatures')
+    pooled_features = tf.reduce_mean(bottleneck_features, [1, 2], keep_dims=True)
+    with slim.arg_scope(self._first_stage_box_predictor_arg_scope):
+      cam_features = slim.flatten(pooled_features)
+      for _ in range(2):
+        cam_features = slim.fully_connected(cam_features, 1024)
+      camera_motion = slim.fully_connected(
+          cam_features,
+          12, #self._num_camera_motion_params,
+          activation_fn=None,
+          scope='CameraMotionPredictor')
+    prediction_dict = {
+        'camera_motion': camera_motion}
     return prediction_dict
 
   def _predict_second_stage(self, rpn_box_encodings,
@@ -869,6 +902,10 @@ class FasterRCNNMetaArch(model.DetectionModel):
           image_shape,
           mask_predictions=mask_predictions,
           motion_predictions=motion_predictions)
+
+      if 'camera_motion' in prediction_dict:
+        detections_dict['camera_motion'] = prediction_dict['camera_motion']
+
       return detections_dict
 
   def _postprocess_rpn(self,
@@ -1394,6 +1431,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
           prediction_dict['anchors'],
           groundtruth_boxlists,
           groundtruth_classes_with_background_list)
+      loss_dict.update(self._loss_global(
+          prediction_dict.get('camera_motion'),
+          self._groundtruth_camera_motion_list))
       if not self._first_stage_only:
         loss_dict.update(
             self._loss_box_classifier(
@@ -1408,6 +1448,22 @@ class FasterRCNNMetaArch(model.DetectionModel):
                 groundtruth_masks_list,
                 prediction_dict.get('motion_predictions'),
                 groundtruth_motions_list))
+    return loss_dict
+
+  def _loss_global(self,
+                   predicted_camera_motion,
+                   groundtruth_camera_motion_list):
+    loss_dict = {}
+    if predicted_camera_motion is not None:
+      groundtruth_camera_motion = tf.stack(
+        groundtruth_camera_motion_list, axis=0)
+      camera_motion_losses = motion_util.camera_motion_loss(
+          predicted_camera_motion,
+          groundtruth_camera_motion)
+      camera_motion_loss = tf.reduce_mean(camera_motion_losses)
+      loss_dict.update({
+          'first_stage_camera_motion_loss':
+          self._first_stage_camera_motion_loss_weight * camera_motion_loss})
     return loss_dict
 
   def _loss_rpn(self,

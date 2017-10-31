@@ -99,6 +99,12 @@ def _extract_prediction_tensors(model,
         motion_util.postprocess_detection_motions(detection_motions))
     tensor_dict['detection_motions'] = detection_motions_with_matrices
 
+  if 'camera_motion' in tensor_dict:
+    camera_motion = tf.squeeze(detections['camera_motion'], axis=0)
+    camera_motion_with_matrices = (
+        motion_util.postprocess_camera_motion(camera_motion))
+    tensor_dict['camera_motion'] = camera_motion_with_matrices
+
   # load groundtruth fields into tensor_dict
   if not ignore_groundtruth:
     normalized_gt_boxlist = box_list.BoxList(
@@ -120,6 +126,8 @@ def _extract_prediction_tensors(model,
           fields.InputDataFields.groundtruth_instance_masks]
 
     if 'detection_motions' in tensor_dict:
+      tensor_dict['groundtruth_camera_motion'] = input_dict[
+          fields.InputDataFields.groundtruth_camera_motion]
       tensor_dict['groundtruth_instance_motions'] = input_dict[
           fields.InputDataFields.groundtruth_instance_motions]
       tensor_dict['camera_intrinsics'] = input_dict[
@@ -133,12 +141,6 @@ def _extract_prediction_tensors(model,
       else:
         tensor_dict['groundtruth_depth'] = input_dict[
             fields.InputDataFields.groundtruth_depth]
-      if not 'camera_motion' in tensor_dict:
-        tensor_dict['camera_motion'] = input_dict[
-            fields.InputDataFields.groundtruth_camera_motion]
-      else:
-        tensor_dict['groundtruth_camera_motion'] = input_dict[
-            fields.InputDataFields.groundtruth_camera_motion]
   return tensor_dict
 
 

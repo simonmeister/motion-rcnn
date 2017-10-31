@@ -6,12 +6,12 @@
 import tensorflow as tf
 
 
-def euler_to_rot(x, y, z, sine_inputs=True):
+def euler_to_rot(x, y, z, sine_inputs=False):
     """Compose 3d rotations (in batches) from angles.
     Args:
-      x, y, z: tensor of shape (N, 1) with values in [-1, 1]
-      sine_inputs: if true, inputs are given as angle sines,
-        if false, as raw angles in radians.
+      x, y, z: tensor of shape (N, 1)
+      sine_inputs: if true, inputs are given as angle sines with
+        values in [-1, 1], if false, as raw angles in radians.
     Returns:
       rotations: tensor of shape (N, 3, 3)
     """
@@ -23,9 +23,12 @@ def euler_to_rot(x, y, z, sine_inputs=True):
       sin_x = x
       sin_y = y
       sin_z = z
-      cos_x = tf.sqrt(1 - sin_x ** 2)
-      cos_y = tf.sqrt(1 - sin_y ** 2)
-      cos_z = tf.sqrt(1 - sin_z ** 2)
+      cos_x = tf.sqrt(1 - tf.square(sin_x))
+      cos_y = tf.sqrt(1 - tf.square(sin_y))
+      cos_z = tf.sqrt(1 - tf.square(sin_z))
+      cos_x = tf.check_numerics(cos_x, message='cos_x_', name='cos_x_')
+      cos_y = tf.check_numerics(cos_y, message='cos_y_', name='cos_y_')
+      cos_z = tf.check_numerics(cos_z, message='cos_z_', name='cos_z_')
     else:
       sin_x = tf.sin(x)
       sin_y = tf.sin(y)
@@ -96,7 +99,8 @@ def _motion_losses(pred, target):
 
   rot_T = tf.transpose(rot, [0, 2, 1])
   d_rot = rot_T @ gt_rot
-  d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]))
+  d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]),
+                       axis=2)
   d_pivot = gt_pivot - pivot
 
   err_angle = tf.acos(tf.clip_by_value((tf.trace(d_rot) - 1) / 2, -1, 1))
@@ -109,8 +113,31 @@ def _motion_losses(pred, target):
 def postprocess_detection_motions(pred):
   """Convert predicted motions to use matrix representation for rotations.
   Restrict range of angle sines to [-1, 1]"""
-  #angle_sines = pred
-  angle_sines = tf.clip_by_value(pred[:, 0:3], -1, 1)
+  angle_sines = pred
+  #angle_sines = tf.clip_by_value(pred[:, 0:3], -1, 1)
   rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
   rot_flat = tf.reshape(rot, [-1, 9])
   return tf.concat([rot_flat, pred[:, 3:]], axis=1)
+
+
+def postprocess_camera_motion(pred):
+  return postprocess_detection_motions(tf.expand_dims(pred, 0))[0, :]
+
+
+def camera_motion_loss(pred, target):
+  """Compute loss between predicted and ground truth camera motion.
+  Args:
+    pred: tensor of shape [batch_size, 6] containing predicted
+      angle sines and translation.
+    target: tensor of shape [batch_size, 12] containing
+      target rotation matrix and translation.
+  Returns:
+    losses: a scalar
+  """
+  batch_size = tf.unstack(tf.shape(pred))[0]
+  mock_pivot = tf.zeros([batch_size, 3])
+  err_angle, err_trans, _ = _motion_losses(
+    tf.concat([pred, mock_pivot], axis=1),
+    tf.concat([target, mock_pivot], axis=1))
+
+  return err_angle + err_trans

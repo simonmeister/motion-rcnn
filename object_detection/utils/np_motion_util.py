@@ -133,7 +133,7 @@ def _motion_errors(pred, target):
     mean_rel_angle = np.mean(err_rel_angle)
   else:
     mean_rel_angle = np.array([0])
-    
+
   if len(err_rel_trans) > 0:
     mean_rel_trans = np.mean(err_rel_trans)
   else:
@@ -149,8 +149,11 @@ def _motion_errors(pred, target):
   return {k: np.asscalar(v) for (k, v) in error_dict.items()}
 
 
-def evaluate(gt_boxes, gt_motions, detected_boxes, detected_motions,
-             matching_iou_threshold=.5):
+def evaluate_instance_motions(gt_boxes,
+                              gt_motions,
+                              detected_boxes,
+                              detected_motions,
+                              matching_iou_threshold=.5):
   gt_boxlist = np_box_list.BoxList(gt_boxes)
   detected_boxlist = np_box_list.BoxList(detected_boxes)
 
@@ -174,3 +177,12 @@ def evaluate(gt_boxes, gt_motions, detected_boxes, detected_motions,
   pred = np.stack(pred_list, axis=0)
   target = np.stack(target_list, axis=0)
   return _motion_errors(pred, target)
+
+
+def evaluate_camera_motion(pred, target):
+  mock_pivot = tf.zeros([1, 3])
+  error_dict = _motion_errors(
+    np.concatenate([np.expand_dims(pred, 0), mock_pivot], axis=1),
+    np.concatenate([np.expand_dims(target, 0), mock_pivot], axis=1))
+  del error_dict['mPivot']
+  return error_dict

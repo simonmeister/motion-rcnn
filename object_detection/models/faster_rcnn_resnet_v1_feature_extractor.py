@@ -137,6 +137,9 @@ class FasterRCNNResnetV1FeatureExtractor(
     handle = scope + '/%s/block3' % self._architecture
     return activations[handle]
 
+  def _extract_bottleneck_features(self, rpn_feature_maps, scope):
+    return self._extract_box_classifier_features(rpn_feature_maps, scope)
+
   def _extract_box_classifier_features(self, proposal_feature_maps, scope):
     """Extracts second stage box classifier features.
 

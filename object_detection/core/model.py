@@ -196,7 +196,8 @@ class DetectionModel(object):
                           groundtruth_classes_list,
                           groundtruth_masks_list=None,
                           groundtruth_keypoints_list=None,
-                          groundtruth_motions_list=None):
+                          groundtruth_motions_list=None,
+                          groundtruth_camera_motion_list=None):
     """Provide groundtruth tensors.
 
     Args:
@@ -220,6 +221,8 @@ class DetectionModel(object):
       groundtruth_motions_list: a list of 2-D tf.float32 tensors of
         shape [max_detections, num_gt_motion_params] containing motions
         for each object.  If None, no motions are provided.
+      groundtruth_camera_motion_list: a list of a 1-D tf.float32 tensor
+        of shape [12]. If None, no camera motion is provided.
     """
     self._groundtruth_lists[fields.BoxListFields.boxes] = groundtruth_boxes_list
     self._groundtruth_lists[
@@ -233,6 +236,9 @@ class DetectionModel(object):
     if groundtruth_motions_list:
       self._groundtruth_lists[
           fields.BoxListFields.motions] = groundtruth_motions_list
+
+    self._groundtruth_camera_motion_list = groundtruth_camera_motion_list
+
 
   @abstractmethod
   def restore_map(self, from_detection_checkpoint=True):

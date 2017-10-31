@@ -159,6 +159,12 @@ def _build_faster_rcnn_model(frcnn_config, is_training):
       frcnn_config.second_stage_mask_loss_weight)
   second_stage_motion_loss_weight = (
       frcnn_config.second_stage_motion_loss_weight)
+  first_stage_predict_camera_motion = (
+      frcnn_config.first_stage_predict_camera_motion)
+  first_stage_camera_motion_arg_scope = None
+  if first_stage_predict_camera_motion:
+    first_stage_camera_motion_arg_scope = hyperparams_builder.build(
+        frcnn_config.first_stage_camera_motion_fc_hyperparams, is_training)
 
   hard_example_miner = None
   if frcnn_config.HasField('hard_example_miner'):
@@ -202,7 +208,13 @@ def _build_faster_rcnn_model(frcnn_config, is_training):
       second_stage_mask_loss_weight,
       'second_stage_motion_loss_weight':
       second_stage_motion_loss_weight,
-      'hard_example_miner': hard_example_miner}
+      'hard_example_miner': hard_example_miner,
+      'first_stage_predict_camera_motion':
+      first_stage_predict_camera_motion,
+      'first_stage_camera_motion_loss_weight':
+      frcnn_config.second_stage_motion_loss_weight,
+      'first_stage_camera_motion_arg_scope':
+      first_stage_camera_motion_arg_scope}
 
   if isinstance(second_stage_box_predictor, box_predictor.RfcnBoxPredictor):
     return rfcn_meta_arch.RFCNMetaArch(
