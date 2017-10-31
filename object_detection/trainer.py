@@ -286,10 +286,8 @@ def train(create_tensor_dict_fn, create_model_fn, train_config, master, task,
       update_ops.append(grad_updates)
 
       update_op = tf.group(*update_ops)
-      #check_op = tf.add_check_numerics_ops()
       with tf.control_dependencies([update_op]):
         train_tensor = tf.identity(total_loss, name='train_op')
-        #train_tensor = tf.group(train_tensor, check_op)
 
     # Add summaries.
     for model_var in slim.get_model_variables():

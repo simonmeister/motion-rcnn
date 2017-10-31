@@ -6,7 +6,14 @@
 import tensorflow as tf
 
 
-def euler_to_rot(x, y, z, sine_inputs=False):
+def clip_to_open_interval(x, xmin=-1, xmax=1, eps=1e-08):
+  """Clip absolute value to be strictly less than limits.
+  E.g., the return value with default limits is safe to be
+  used inside acos."""
+  return tf.clip_by_value(x, -xmin + eps, xmax - eps)
+
+
+def euler_to_rot(x, y, z, sine_inputs=True):
     """Compose 3d rotations (in batches) from angles.
     Args:
       x, y, z: tensor of shape (N, 1)
@@ -23,12 +30,10 @@ def euler_to_rot(x, y, z, sine_inputs=False):
       sin_x = x
       sin_y = y
       sin_z = z
-      cos_x = tf.sqrt(1 - tf.square(sin_x))
-      cos_y = tf.sqrt(1 - tf.square(sin_y))
-      cos_z = tf.sqrt(1 - tf.square(sin_z))
-      cos_x = tf.check_numerics(cos_x, message='cos_x_', name='cos_x_')
-      cos_y = tf.check_numerics(cos_y, message='cos_y_', name='cos_y_')
-      cos_z = tf.check_numerics(cos_z, message='cos_z_', name='cos_z_')
+      eps = 1e-06
+      cos_x = tf.sqrt(1 - tf.square(sin_x) + eps)
+      cos_y = tf.sqrt(1 - tf.square(sin_y) + eps)
+      cos_z = tf.sqrt(1 - tf.square(sin_z) + eps)
     else:
       sin_x = tf.sin(x)
       sin_y = tf.sin(y)
@@ -55,7 +60,7 @@ def euler_to_rot(x, y, z, sine_inputs=False):
     rot_z_3 = tf.stack([zero, zero, one], axis=2)
     rot_z = tf.concat([rot_z_1, rot_z_2, rot_z_3], axis=1)
 
-    return rot_z @ rot_x @ rot_y
+    return rot_y
 
 
 def motion_loss(pred, target, weights):
@@ -98,14 +103,14 @@ def _motion_losses(pred, target):
   gt_pivot = target[:, 12:15]
 
   rot_T = tf.transpose(rot, [0, 2, 1])
-  #d_rot = rot_T @ gt_rot
   d_rot = rot_T @ gt_rot
+  #d_rot = gt_rot @ rot_T
   d_trans = gt_trans - trans
   #d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]),
   #                     axis=2)
   d_pivot = gt_pivot - pivot
 
-  err_angle = tf.acos(tf.clip_by_value((tf.trace(d_rot) - 1) / 2, -1, 1))
+  err_angle = tf.acos(clip_to_open_interval((tf.trace(d_rot) - 1) / 2))
   err_trans = tf.norm(d_trans, axis=1)
   err_pivot = tf.norm(d_pivot, axis=1)
 
@@ -115,8 +120,7 @@ def _motion_losses(pred, target):
 def postprocess_detection_motions(pred):
   """Convert predicted motions to use matrix representation for rotations.
   Restrict range of angle sines to [-1, 1]"""
-  angle_sines = pred
-  #angle_sines = tf.clip_by_value(pred[:, 0:3], -1, 1)
+  angle_sines = clip_to_open_interval(pred[:, 0:3])
   rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
   rot_flat = tf.reshape(rot, [-1, 9])
   return tf.concat([rot_flat, pred[:, 3:]], axis=1)
