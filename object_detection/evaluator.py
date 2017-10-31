@@ -55,11 +55,23 @@ def _extract_prediction_tensors(model,
   original_image = tf.expand_dims(input_dict[fields.InputDataFields.image], 0)
 
   next_image = input_dict.get(fields.InputDataFields.next_image)
-  image_input = original_image
+  image_input = tf.to_float(original_image)
   if next_image is not None:
-    image_input = tf.concat([original_image, tf.expand_dims(next_image, 0)], 3)
+    next_image = tf.to_float(next_image)
+    image_input = tf.concat([image_input, tf.expand_dims(next_image, 0)], 3)
+    depth = input_dict.get(fields.InputDataFields.groundtruth_depth)
+    next_depth = input_dict.get(fields.InputDataFields.groundtruth_next_depth)
+    image_input.set_shape([1, None, None, 6])
+    if depth is not None and next_depth is not None: # TODO make controllable from proto entry: load_coords
+      camera_intrinsics = input_dict[fields.InputDataFields.camera_intrinsics]
+      coords = motion_util.get_3D_coords(
+          tf.expand_dims(depth, 0), camera_intrinsics)
+      next_coords = motion_util.get_3D_coords(
+          tf.expand_dims(next_depth, 0), camera_intrinsics)
+      image_input = tf.concat([image_input, coords, next_coords], 3)
+      image_input.set_shape([1, None, None, 12])
 
-  preprocessed_image = model.preprocess(tf.to_float(image_input))
+  preprocessed_image = model.preprocess(image_input)
   prediction_dict = model.predict(preprocessed_image)
   detections = model.postprocess(prediction_dict)
 

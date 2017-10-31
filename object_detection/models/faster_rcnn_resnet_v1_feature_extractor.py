@@ -80,11 +80,14 @@ class FasterRCNNResnetV1FeatureExtractor(
 
     """
     channel_means = [123.68, 116.779, 103.939]
-    channel_means = tf.cond(
-        tf.equal(tf.shape(resized_inputs)[3], 6),
-        lambda: tf.constant(channel_means * 2, dtype=tf.float32),
-        lambda: tf.constant(channel_means, dtype=tf.float32))
-    return resized_inputs - channel_means # [[channel_means]]
+    num_channels = resized_inputs.get_shape()[3]
+    if num_channels == 6:
+      channel_means *= 2
+    elif num_channels > 6:
+      channel_means = channel_means * 2 + [0.0] * (num_channels - 6)
+    elif num_channels != 3:
+      raise ValueError('invaldid number of channels')
+    return resized_inputs - channel_means
 
   def _extract_proposal_features(self, preprocessed_inputs, scope):
     """Extracts first stage RPN features.

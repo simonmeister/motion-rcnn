@@ -87,6 +87,10 @@ def euler_to_rot(x, y, z):
   return rot_z @ rot_x @ rot_y
 
 
+def _rotation_angle(mat):
+  return np.arccos(np.clip((np.trace(mat, axis1=1, axis2=2) - 1) / 2, -1, 1))
+
+
 def _motion_errors(pred, target):
   """
   Args:
@@ -99,9 +103,6 @@ def _motion_errors(pred, target):
       rotation, translation, pivot, relative rotation and relative translation
       errors
   """
-  def _rotation_angle(mat):
-    return np.arccos(np.clip((np.trace(mat, axis1=1, axis2=2) - 1) / 2, -1, 1))
-
   rot = np.reshape(pred[:, 0:9], [-1, 3, 3])
   trans = pred[:, 9:12]
   pivot = pred[:, 12:15]
@@ -112,7 +113,8 @@ def _motion_errors(pred, target):
 
   rot_T = np.transpose(rot, [0, 2, 1])
   d_rot = rot_T @ gt_rot
-  d_trans = np.squeeze(rot_T @ np.reshape(gt_trans - trans, [-1, 3, 1]))
+  d_trans = np.squeeze(rot_T @ np.reshape(gt_trans - trans, [-1, 3, 1]),
+                       axis=2)
   d_pivot = gt_pivot - pivot
 
   err_angle = _rotation_angle(d_rot)
@@ -141,7 +143,9 @@ def _motion_errors(pred, target):
 
   error_dict = {
       'mAngle': mean_angle,
+      'mAveAngle': np.mean(_rotation_angle(gt_rot)),
       'mTrans': mean_trans,
+      'mAveTrans': np.mean(np.linalg.norm(gt_trans, axis=1)),
       'mPivot': mean_pivot,
       'mRelAngle': mean_rel_angle,
       'mRelTrans': mean_rel_trans}
@@ -169,8 +173,10 @@ def evaluate_instance_motions(gt_boxes,
       target_list.append(gt_motions[gt_id, :])
   if len(pred_list) == 0:
     return {
+        'mAveAngle': 0,
         'mAngle': 0,
         'mTrans': 0,
+        'mAveTrans': 0,
         'mPivot': 0,
         'mRelAngle': 0,
         'mRelTrans': 0}

@@ -77,6 +77,7 @@ class InputDataFields(object):
   groundtruth_camera_motion = 'groundtruth_camera_motion'
   camera_intrinsics = 'camera_intrinsics'
   groundtruth_depth = 'groundtruth_depth'
+  groundtruth_next_depth = 'groundtruth_next_depth'
   groundtruth_flow = 'groundtruth_flow'
 
 

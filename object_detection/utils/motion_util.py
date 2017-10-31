@@ -98,9 +98,11 @@ def _motion_losses(pred, target):
   gt_pivot = target[:, 12:15]
 
   rot_T = tf.transpose(rot, [0, 2, 1])
+  #d_rot = rot_T @ gt_rot
   d_rot = rot_T @ gt_rot
-  d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]),
-                       axis=2)
+  d_trans = gt_trans - trans
+  #d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]),
+  #                     axis=2)
   d_pivot = gt_pivot - pivot
 
   err_angle = tf.acos(tf.clip_by_value((tf.trace(d_rot) - 1) / 2, -1, 1))
@@ -141,3 +143,23 @@ def camera_motion_loss(pred, target):
     tf.concat([target, mock_pivot], axis=1))
 
   return err_angle + err_trans
+
+
+def get_3D_coords(depth, camera_intrinsics):
+  def _pixels_to_3d(x, y, d):
+      x = tf.expand_dims(tf.expand_dims(x, 0), 3)
+      y = tf.expand_dims(tf.expand_dims(y, 0), 3)
+      f, x0, y0 = tf.unstack(camera_intrinsics)
+      factor = d / f
+      X = (x - x0) * factor
+      Y = (y - y0) * factor
+      Z = d
+      return X, Y, Z
+
+  num, height, width = tf.unstack(tf.shape(depth))[:3]
+  ys = tf.cast(tf.range(height), tf.float32)
+  xs = tf.cast(tf.range(width), tf.float32)
+  x, y = tf.meshgrid(xs, ys)
+  X, Y, Z = _pixels_to_3d(x, y, depth)
+  XYZ = tf.concat([X, Y, Z], axis=3)
+  return XYZ

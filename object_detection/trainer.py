@@ -30,6 +30,7 @@ from object_detection.core import preprocessor
 from object_detection.core import standard_fields as fields
 from object_detection.utils import ops as util_ops
 from object_detection.utils import variables_helper
+from object_detection.utils import motion_util
 from deployment import model_deploy
 
 slim = tf.contrib.slim
@@ -109,8 +110,20 @@ def _get_inputs(input_queue, num_classes):
     image = read_data[fields.InputDataFields.image]
     next_image = read_data.get(fields.InputDataFields.next_image)
     image_input = image
-    if next_image is not None: # TODO make this controllable by proto entry inside of loader: load_next_image
-      image_input = tf.concat([image, tf.expand_dims(next_image, 0)], 3)
+    if next_image is not None: # TODO make this controllable from proto entry inside of loader: load_next_image
+      image_input = tf.concat([image_input, tf.expand_dims(next_image, 0)], 3)
+      depth = read_data.get(fields.InputDataFields.groundtruth_depth)
+      next_depth = read_data.get(fields.InputDataFields.groundtruth_next_depth)
+      image_input.set_shape([1, None, None, 6])
+      if depth is not None and next_depth is not None: # TODO make controllable from proto entry: load_coords
+        camera_intrinsics = read_data[fields.InputDataFields.camera_intrinsics]
+        coords = motion_util.get_3D_coords(
+            tf.expand_dims(depth, 0), camera_intrinsics)
+        next_coords = motion_util.get_3D_coords(
+            tf.expand_dims(next_depth, 0), camera_intrinsics)
+        image_input = tf.concat([image_input, coords, next_coords], 3)
+        image_input.set_shape([1, None, None, 12])
+
     location_gt = read_data[fields.InputDataFields.groundtruth_boxes]
     classes_gt = tf.cast(read_data[fields.InputDataFields.groundtruth_classes],
                          tf.int32)

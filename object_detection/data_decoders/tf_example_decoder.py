@@ -61,6 +61,7 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         'image/camera/motion': tf.FixedLenFeature((12,), tf.float32),
         'image/camera/intrinsics': tf.FixedLenFeature((3,), tf.float32),
         'image/depth': tf.VarLenFeature(tf.float32),
+        'next_image/depth': tf.VarLenFeature(tf.float32),
         'image/flow': tf.VarLenFeature(tf.float32)
     }
     self.items_to_handlers = {
@@ -110,6 +111,10 @@ class TfExampleDecoder(data_decoder.DataDecoder):
             slim_example_decoder.ItemHandlerCallback(
                 ['image/depth', 'image/height', 'image/width'],
                 self._decode_depth)),
+        fields.InputDataFields.groundtruth_next_depth: (
+            slim_example_decoder.ItemHandlerCallback(
+                ['next_image/depth', 'image/height', 'image/width'],
+                self._decode_next_depth)),
         fields.InputDataFields.groundtruth_flow: (
             slim_example_decoder.ItemHandlerCallback(
                 ['image/flow', 'image/height', 'image/width'],
@@ -197,6 +202,14 @@ class TfExampleDecoder(data_decoder.DataDecoder):
 
   def _decode_depth(self, keys_to_tensors):
     depth = keys_to_tensors['image/depth']
+    if isinstance(depth, tf.SparseTensor):
+      depth = tf.sparse_tensor_to_dense(depth)
+    height = keys_to_tensors['image/height']
+    width = keys_to_tensors['image/width']
+    return tf.reshape(depth, tf.cast(tf.stack([height, width, 1], 0), tf.int32))
+
+  def _decode_next_depth(self, keys_to_tensors):
+    depth = keys_to_tensors['next_image/depth']
     if isinstance(depth, tf.SparseTensor):
       depth = tf.sparse_tensor_to_dense(depth)
     height = keys_to_tensors['image/height']

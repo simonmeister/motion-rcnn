@@ -94,7 +94,7 @@ def _get_pivot(dct):
 
 def _create_tfexample(label_map_dict,
                       image_id, encoded_image, encoded_next_image,
-                      depth, flow, segmentation,
+                      depth, next_depth, flow, segmentation,
                       extrinsics_dict, next_extrinsics_dict,
                       tracking_rows, next_tracking_rows,
                       segmentation_color_map):
@@ -204,6 +204,7 @@ def _create_tfexample(label_map_dict,
     'image/segmentation/object/index_2': dataset_util.int64_list_feature(index_2.tolist()),
     'image/segmentation/object/class': dataset_util.int64_list_feature(classes),
     'image/depth': dataset_util.float_list_feature(depth.ravel().tolist()),
+    'next_image/depth': dataset_util.float_list_feature(next_depth.ravel().tolist()),
     'image/flow': dataset_util.float_list_feature(example_flow.ravel().tolist()),
     'image/camera/motion': dataset_util.float_list_feature(camera_motion.tolist()),
     'image/camera/intrinsics': dataset_util.float_list_feature(camera_intrinsics.tolist())
@@ -321,7 +322,7 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
       example_infos.append(
           (seq_i, i,
            image_seq[i], image_seq[i + 1],
-           depth_seq[i], flow_seq[i], segmentation_seq[i],
+           depth_seq[i], depth_seq[i + 1], flow_seq[i], segmentation_seq[i],
            extrinsics_seq[i], extrinsics_seq[i + 1],
            tracking_seq[i], tracking_seq[i + 1]))
 
@@ -348,7 +349,7 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
 
       for i in range(start_ndx, end_ndx):
         (seq_id, frame_id,
-         image_fn, next_image_fn, depth_fn, flow_fn, segmentation_fn,
+         image_fn, next_image_fn, depth_fn, next_depth_fn, flow_fn, segmentation_fn,
          extrinsics_rows, next_extrinsics_rows,
          tracking_rows, next_tracking_rows) = example_infos[i]
 
@@ -362,11 +363,12 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
         next_image = _read_image(next_image_fn)
         segmentation = _read_image(segmentation_fn, rgb=True)
         depth = _read_depth(depth_fn)
+        next_depth = _read_depth(next_depth_fn)
         flow = _read_flow(flow_fn)
 
         example, num_instances = _create_tfexample(
             label_map_dict,
-            image_id, image, next_image, depth, flow, segmentation,
+            image_id, image, next_image, depth, next_depth, flow, segmentation,
             extrinsics_rows[0], next_extrinsics_rows[0],
             tracking_rows, next_tracking_rows,
             segmentation_color_maps[seq_id])

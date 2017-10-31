@@ -20,7 +20,7 @@ from cityscapesscripts.helpers.labels import trainId2label
 
 from object_detection.data_decoders.tf_example_decoder import TfExampleDecoder
 from object_detection.utils.flow_util import flow_to_color, flow_error_image, flow_error_avg
-from object_detection.utils.np_motion_util import dense_flow_from_motion
+from object_detection.utils.np_motion_util import dense_flow_from_motion, _rotation_angle
 from object_detection.utils.visualization_utils import visualize_flow
 
 
@@ -61,17 +61,27 @@ with tf.Graph().as_default():
             num_instances_np = gt_masks_np.shape[0]
             image_np = np.squeeze(image_np)
             depth_np = example_np['groundtruth_depth']
+            gt_motions_np = example_np['groundtruth_instance_motions']
 
             composed_flow_color_np, flow_error_np = visualize_flow(
                 depth_np,
-                example_np['groundtruth_instance_motions'],
+                gt_motions_np,
+                np.ones([gt_motions_np.shape[0]]),
                 example_np['groundtruth_camera_motion'],
                 example_np['camera_intrinsics'],
                 masks=gt_masks_np,
                 groundtruth_flow=example_np['groundtruth_flow'])
 
-            print('image_id: {}, instances: {}, shape: {}'
-                  .format(img_id_np, num_instances_np, image_np.shape))
+            # motion gt summary
+            gt_rot = np.reshape(gt_motions_np[:, :9], [-1, 3, 3])
+            gt_trans = np.reshape(gt_motions_np[:, 9:12], [-1, 3])
+            print(gt_rot.shape)
+            mean_rot_angle = np.mean(np.degrees(_rotation_angle(gt_rot)))
+            mean_trans = np.mean(np.linalg.norm(gt_trans))
+
+
+            print('image_id: {}, instances: {}, shape: {}, rot(deg): {}, trans: {}'
+                  .format(img_id_np, num_instances_np, image_np.shape, mean_rot_angle, mean_trans))
 
             # overlay masks
             for i in range(gt_boxes_np.shape[0]):
