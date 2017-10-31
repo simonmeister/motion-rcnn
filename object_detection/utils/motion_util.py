@@ -30,7 +30,7 @@ def euler_to_rot(x, y, z, sine_inputs=True):
       sin_x = x
       sin_y = y
       sin_z = z
-      eps = 1e-06
+      eps = 1e-07
       cos_x = tf.sqrt(1 - tf.square(sin_x) + eps)
       cos_y = tf.sqrt(1 - tf.square(sin_y) + eps)
       cos_z = tf.sqrt(1 - tf.square(sin_z) + eps)
@@ -60,7 +60,7 @@ def euler_to_rot(x, y, z, sine_inputs=True):
     rot_z_3 = tf.stack([zero, zero, one], axis=2)
     rot_z = tf.concat([rot_z_1, rot_z_2, rot_z_3], axis=1)
 
-    return rot_y
+    return rot_z @ rot_x @ rot_y
 
 
 def motion_loss(pred, target, weights):

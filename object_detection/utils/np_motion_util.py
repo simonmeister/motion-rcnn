@@ -143,12 +143,12 @@ def _motion_errors(pred, target):
 
   error_dict = {
       'mAngle': mean_angle,
-      'mAveAngle': np.mean(_rotation_angle(gt_rot)),
       'mTrans': mean_trans,
-      'mAveTrans': np.mean(np.linalg.norm(gt_trans, axis=1)),
       'mPivot': mean_pivot,
       'mRelAngle': mean_rel_angle,
-      'mRelTrans': mean_rel_trans}
+      'mRelTrans': mean_rel_trans,
+      'mAveAngle': np.mean(_rotation_angle(rot)),
+      'mAveTrans': np.mean(np.linalg.norm(trans, axis=1))}
 
   return {k: np.asscalar(v) for (k, v) in error_dict.items()}
 
@@ -173,13 +173,13 @@ def evaluate_instance_motions(gt_boxes,
       target_list.append(gt_motions[gt_id, :])
   if len(pred_list) == 0:
     return {
-        'mAveAngle': 0,
         'mAngle': 0,
         'mTrans': 0,
-        'mAveTrans': 0,
         'mPivot': 0,
         'mRelAngle': 0,
-        'mRelTrans': 0}
+        'mRelTrans': 0,
+        'mAveAngle': 0,
+        'mAveTrans': 0}
   pred = np.stack(pred_list, axis=0)
   target = np.stack(target_list, axis=0)
   return _motion_errors(pred, target)

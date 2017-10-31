@@ -25,7 +25,7 @@ from object_detection.utils.visualization_utils import visualize_flow
 
 
 with tf.Graph().as_default():
-    file_pattern = 'object_detection/data/records/vkitti_train/00000-of-00020.record'
+    file_pattern = 'object_detection/data/records/test/vkitti_val/00000-of-00000.record'
     tfrecords = glob.glob(file_pattern)
 
     with tf.device('/cpu:0'):
@@ -115,8 +115,8 @@ with tf.Graph().as_default():
 
             im.save(os.path.join(out_dir, str(img_id_np) + '_image1.png'))
             next_im.save(os.path.join(out_dir, str(img_id_np) + '_image2.png'))
-            flow_im.save(os.path.join(out_dir, str(img_id_np) + '_flow.png'))
             depth_im.save(os.path.join(out_dir, str(img_id_np) + '_depth.png'))
+            flow_im.save(os.path.join(out_dir, str(img_id_np) + '_flow.png'))
             composed_flow_im.save(os.path.join(out_dir, str(img_id_np) + '_flow_from_motion.png'))
-            flow_error_im.save(os.path.join(out_dir, str(img_id_np) + '_flow_error.png'))
+            flow_error_im.save(os.path.join(out_dir, str(img_id_np) + '_error.png'))
         sess.close()
