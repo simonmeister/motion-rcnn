@@ -6,11 +6,11 @@
 import tensorflow as tf
 
 
-def clip_to_open_interval(x, xmin=-1, xmax=1, eps=1e-08):
-  """Clip absolute value to be strictly less than limits.
+def clip_to_open_interval(x, xmin=-1.0, xmax=1.0, eps=1e-08):
+  """Clip value to be strictly within the limits.
   E.g., the return value with default limits is safe to be
   used inside acos."""
-  return tf.clip_by_value(x, -xmin + eps, xmax - eps)
+  return tf.clip_by_value(x, xmin + eps, xmax - eps)
 
 
 def euler_to_rot(x, y, z, sine_inputs=True):
@@ -106,14 +106,16 @@ def _motion_losses(pred, target):
   d_rot = rot_T @ gt_rot
   #d_rot = gt_rot @ rot_T
   d_trans = gt_trans - trans
-  #d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]),
-  #                     axis=2)
+  d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]),
+                       axis=2)
   d_pivot = gt_pivot - pivot
 
   err_angle = tf.acos(clip_to_open_interval((tf.trace(d_rot) - 1) / 2))
   err_trans = tf.norm(d_trans, axis=1)
   err_pivot = tf.norm(d_pivot, axis=1)
-
+  #err_angle = tf.acos(clip_to_open_interval((tf.trace(rot) - 1) / 2))
+  #err_trans = tf.norm(trans, axis=1)
+  #err_pivot = tf.norm(pivot, axis=1)
   return err_angle, err_trans, err_pivot
 
 

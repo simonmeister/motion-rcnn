@@ -455,7 +455,7 @@ class MaskRCNNBoxPredictor(BoxPredictor):
         motion_predictions = slim.fully_connected(
             flattened_image_features,
             self._num_classes * self._num_motion_params,
-            weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+            weights_initializer=tf.truncated_normal_initializer(0.0, 0.0001),
             activation_fn=None,
             scope='MotionPredictor')
         instance_motions = tf.reshape(
