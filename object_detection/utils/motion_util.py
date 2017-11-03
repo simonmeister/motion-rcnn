@@ -112,8 +112,6 @@ def _motion_losses(pred, target):
   gt_trans = target[:, 9:12]
   gt_pivot = target[:, 12:15]
 
-  #eye_rot = tf.eye(3, batch_shape=tf.shape(rot)[:1])
-  #rot_T = tf.transpose(rot, [0, 2, 1])
   d_rot = tf.reshape(gt_rot - rot, [-1, 9])
   d_trans = gt_trans - trans
   d_pivot = gt_pivot - pivot

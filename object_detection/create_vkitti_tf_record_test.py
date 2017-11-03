@@ -25,7 +25,8 @@ from object_detection.utils.visualization_utils import visualize_flow
 
 
 with tf.Graph().as_default():
-    file_pattern = 'object_detection/data/records/vkitti_val/00000-of-00000.record'
+    #file_pattern = 'object_detection/data/records/vkitti_train/00000-of-00020.record'
+    file_pattern = 'object_detection/data/records/vkitti_train/00000-of-00020.record'
     tfrecords = glob.glob(file_pattern)
 
     with tf.device('/cpu:0'):
