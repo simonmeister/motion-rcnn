@@ -25,7 +25,7 @@ from object_detection.utils.visualization_utils import visualize_flow
 
 
 with tf.Graph().as_default():
-    file_pattern = 'object_detection/data/records/test/vkitti_val/00000-of-00000.record'
+    file_pattern = 'object_detection/data/records/vkitti_val/00000-of-00000.record'
     tfrecords = glob.glob(file_pattern)
 
     with tf.device('/cpu:0'):
@@ -52,7 +52,7 @@ with tf.Graph().as_default():
     with sess.as_default():
         for i in range(100):
             example_np, flow_color_np = sess.run([example, flow_color])
-            img_id_np = example_np['filename']
+            img_id_np = i #example_np['filename']
             image_np = example_np['image']
             gt_boxes_np = example_np['groundtruth_boxes']
             gt_classes_np = example_np['groundtruth_classes']
@@ -78,7 +78,6 @@ with tf.Graph().as_default():
             print(gt_rot.shape)
             mean_rot_angle = np.mean(np.degrees(_rotation_angle(gt_rot)))
             mean_trans = np.mean(np.linalg.norm(gt_trans))
-
 
             print('image_id: {}, instances: {}, shape: {}, rot(deg): {}, trans: {}'
                   .format(img_id_np, num_instances_np, image_np.shape, mean_rot_angle, mean_trans))

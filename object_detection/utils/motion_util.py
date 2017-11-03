@@ -74,12 +74,12 @@ def motion_loss(pred, target, weights):
   """
   batch_size, num_anchors = tf.unstack(tf.shape(pred)[:2])
 
-  err_angle, err_trans, err_pivot = _motion_losses(
+  l_angle, l_trans, l_pivot = _motion_losses(
       tf.reshape(pred, [-1, 9]),
       tf.reshape(target, [-1, 15]))
 
-  total_err = err_angle + err_trans + err_pivot
-  return tf.reshape(total_err, [batch_size, num_anchors]) * weights
+  loss = l_angle + l_trans + l_pivot
+  return tf.reshape(loss, [batch_size, num_anchors]) * weights
 
 
 def _motion_losses(pred, target):
@@ -93,6 +93,16 @@ def _motion_losses(pred, target):
     losses: three-tuple of tensors of shape [num_predictions] representing the
       rotation, translation and pivot loss for each instance
   """
+  def _smoothl1_loss(diff):
+    abs_diff = tf.abs(diff)
+    abs_diff_lt_1 = tf.less(abs_diff, 1)
+    return tf.reduce_sum(
+        tf.where(abs_diff_lt_1, 0.5 * tf.square(abs_diff), abs_diff - 0.5),
+        1)
+
+  def _l1_loss(diff):
+    return tf.reduce_sum(tf.abs(diff), 1)
+
   pred = postprocess_detection_motions(pred)
   rot = tf.reshape(pred[:, 0:9], [-1, 3, 3])
   trans = pred[:, 9:12]
@@ -102,21 +112,16 @@ def _motion_losses(pred, target):
   gt_trans = target[:, 9:12]
   gt_pivot = target[:, 12:15]
 
-  rot_T = tf.transpose(rot, [0, 2, 1])
-  d_rot = rot_T @ gt_rot
-  #d_rot = gt_rot @ rot_T
+  #eye_rot = tf.eye(3, batch_shape=tf.shape(rot)[:1])
+  #rot_T = tf.transpose(rot, [0, 2, 1])
+  d_rot = tf.reshape(gt_rot - rot, [-1, 9])
   d_trans = gt_trans - trans
-  d_trans = tf.squeeze(rot_T @ tf.reshape(gt_trans - trans, [-1, 3, 1]),
-                       axis=2)
   d_pivot = gt_pivot - pivot
 
-  err_angle = tf.acos(clip_to_open_interval((tf.trace(d_rot) - 1) / 2))
-  err_trans = tf.norm(d_trans, axis=1)
-  err_pivot = tf.norm(d_pivot, axis=1)
-  #err_angle = tf.acos(clip_to_open_interval((tf.trace(rot) - 1) / 2))
-  #err_trans = tf.norm(trans, axis=1)
-  #err_pivot = tf.norm(pivot, axis=1)
-  return err_angle, err_trans, err_pivot
+  l_angle = _smoothl1_loss(d_rot)
+  l_trans = _smoothl1_loss(d_trans)
+  l_pivot = _smoothl1_loss(d_pivot)
+  return l_angle, l_trans, l_pivot
 
 
 def postprocess_detection_motions(pred):
