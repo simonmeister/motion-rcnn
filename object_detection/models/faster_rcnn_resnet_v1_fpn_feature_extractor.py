@@ -136,6 +136,9 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
   def extracted_proposal_features_strides(self):
     return [(x, x) for x in [64, 32, 16, 8, 4]]
 
+  def _extract_bottleneck_features(self, rpn_bottleneck, scope):
+    return rpn_bottleneck
+
   def _extract_proposal_features(self, preprocessed_inputs, scope):
     """Extracts first stage RPN features.
 
@@ -174,7 +177,7 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
               weight_decay=self._weight_decay)):
         with tf.variable_scope(
             self._architecture, reuse=self._reuse_weights) as var_scope:
-          _, activations = self._resnet_model(
+          _, end_points = self._resnet_model(
               preprocessed_inputs,
               num_classes=None,
               is_training=False,
@@ -183,8 +186,9 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
               spatial_squeeze=False,
               scope=var_scope,
               initial_conv_name=initial_conv_name)
-
-    return self._build_pyramid(activations, self._handles_map, scope)
+    pyramid = self._build_pyramid(end_points, self._handles_map, scope)
+    bottleneck = end_points[scope + '/' + self._handles_map['bottleneck']]
+    return pyramid, bottleneck
 
   def _build_pyramid(self, end_points, handles_map, scope):
     pyramid = []
@@ -256,7 +260,8 @@ class FasterRCNNResnet50FPNFeatureExtractor(FasterRCNNResnetV1FPNFeatureExtracto
         'C2': 'resnet_v1_50/resnet_v1_50/block1/unit_2/bottleneck_v1',
         'C3': 'resnet_v1_50/resnet_v1_50/block2/unit_3/bottleneck_v1',
         'C4': 'resnet_v1_50/resnet_v1_50/block3/unit_5/bottleneck_v1',
-        'C5': 'resnet_v1_50/resnet_v1_50/block4/unit_3/bottleneck_v1'}
+        'C5': 'resnet_v1_50/resnet_v1_50/block4/unit_3/bottleneck_v1',
+        'bottleneck': 'resnet_v1_50/resnet_v1_50/block4/unit_3/bottleneck_v1'}
     super(FasterRCNNResnet50FPNFeatureExtractor, self).__init__(
         'resnet_v1_50', resnet_v1.resnet_v1_50, is_training,
         handles_map, reuse_weights, weight_decay)
