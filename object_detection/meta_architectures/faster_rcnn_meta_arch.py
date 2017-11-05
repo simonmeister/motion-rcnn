@@ -524,7 +524,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
           containing instance mask predictions.
     """
     (rpn_box_predictor_features, rpn_features_to_crop, anchors_boxlist,
-     image_shape) = self._extract_rpn_feature_maps(preprocessed_inputs)
+     image_shape, rpn_bottleneck_features
+    ) = self._extract_rpn_feature_maps(preprocessed_inputs)
     (rpn_box_encodings, rpn_objectness_predictions_with_background
     ) = self._predict_rpn_proposals(rpn_box_predictor_features)
 
@@ -554,7 +555,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
 
     if self._first_stage_predict_camera_motion:
       prediction_dict.update(self._predict_camera_motion(
-          rpn_box_predictor_features))
+          rpn_bottleneck_features))
 
     if not self._first_stage_only:
       prediction_dict.update(self._predict_second_stage(
@@ -564,17 +565,18 @@ class FasterRCNNMetaArch(model.DetectionModel):
           anchors, image_shape))
     return prediction_dict
 
-  def _predict_camera_motion(self, rpn_box_predictor_features):
+  def _predict_camera_motion(self, rpn_bottleneck_features):
     bottleneck_features = self._feature_extractor._extract_bottleneck_features(
-        rpn_box_predictor_features[0], scope='BottleneckFeatures')
+        rpn_bottleneck_features, scope='BottleneckFeatures')
     pooled_features = tf.reduce_mean(bottleneck_features, [1, 2], keep_dims=True)
-    with slim.arg_scope(self._first_stage_box_predictor_arg_scope):
+    with slim.arg_scope(self._first_stage_camera_motion_arg_scope):
       cam_features = slim.flatten(pooled_features)
       for _ in range(2):
         cam_features = slim.fully_connected(cam_features, 1024)
       camera_motion = slim.fully_connected(
           cam_features,
-          12, #self._num_camera_motion_params,
+          6, #self._num_camera_motion_params, # TODO
+          weights_initializer=tf.truncated_normal_initializer(0.0, 0.0001), # TODO
           activation_fn=None,
           scope='CameraMotionPredictor')
     prediction_dict = {
@@ -697,10 +699,13 @@ class FasterRCNNMetaArch(model.DetectionModel):
       anchors: A BoxList representing anchors (for the RPN) in
         absolute coordinates.
       image_shape: A 1-D tensor representing the input image shape.
+      rpn_bottleneck_features: A 4-D float32 tensor representing the bottleneck
+        features of the feature extractor.
     """
     image_shape = tf.shape(preprocessed_inputs)
-    rpn_features_to_crop = self._feature_extractor.extract_proposal_features(
-        preprocessed_inputs, scope=self.first_stage_feature_extractor_scope)
+    rpn_features_to_crop, rpn_bottleneck_features = (
+        self._feature_extractor.extract_proposal_features(
+          preprocessed_inputs, scope=self.first_stage_feature_extractor_scope))
 
     if not isinstance(rpn_features_to_crop, list):
       rpn_features_to_crop = [rpn_features_to_crop]
@@ -732,7 +737,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
             activation_fn=tf.nn.relu6)
         rpn_box_predictor_features.append(rpn_box_predictor_feature_map)
     return (rpn_box_predictor_features, rpn_features_to_crop,
-            anchors, image_shape)
+            anchors, image_shape, rpn_bottleneck_features)
 
   def _predict_rpn_proposals(self, rpn_box_predictor_features):
     """Adds box predictors to RPN feature map to predict proposals.
