@@ -30,6 +30,7 @@ import tensorflow as tf
 
 from object_detection.utils import np_motion_util
 from object_detection.utils import flow_util
+from object_detection.utils import np_flow_util
 
 
 _TITLE_LEFT_MARGIN = 10
@@ -461,10 +462,8 @@ def visualize_flow(depth,
 
   flow_error_image = None
   if groundtruth_flow is not None:
-    groundtruth_flow_mask = np.float32((groundtruth_flow[:, :, 0] *
-                                        groundtruth_flow[:, :, 1]) != np.nan)
-    groundtruth_flow_mask = tf.expand_dims(groundtruth_flow_mask, 2)
-    groundtruth_flow = np.nan_to_num(groundtruth_flow)
+    (groundtruth_flow, groundtruth_flow_mask 
+     ) = np_flow_util.gt_flow_and_mask(groundtruth_flow)
     flow_error_image = flow_util.flow_error_image(
         tf.expand_dims(flow, 0),
         tf.expand_dims(groundtruth_flow, 0),

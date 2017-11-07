@@ -45,6 +45,10 @@ message InputReader {
     TFRecordInputReader tf_record_input_reader = 8;
     ExternalInputReader external_input_reader = 9;
   }
+
+  optional bool load_detection_groundtruth = 10 [default = true];
+  optional bool load_motion_groundtruth = 11 [default = true];
+  optional bool load_XYZ = 12 [default = true];
 }
 
 // An input reader that reads TF Example protos from local TFRecord files.

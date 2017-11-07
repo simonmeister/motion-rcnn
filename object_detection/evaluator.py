@@ -111,7 +111,7 @@ def _extract_prediction_tensors(model,
         motion_util.postprocess_detection_motions(detection_motions))
     tensor_dict['detection_motions'] = detection_motions_with_matrices
 
-  if 'camera_motion' in tensor_dict:
+  if 'camera_motion' in detections:
     camera_motion = tf.squeeze(detections['camera_motion'], axis=0)
     camera_motion_with_matrices = (
         motion_util.postprocess_camera_motion(camera_motion))
@@ -220,15 +220,17 @@ def evaluate(create_input_dict_fn, create_model_fn, eval_config, categories,
           result_dict, tag, global_step, categories=categories,
           summary_dir=eval_dir,
           export_dir=eval_config.visualization_export_dir,
-          show_groundtruth=eval_config.visualization_export_dir)
+          show_groundtruth=eval_config.visualization_export_dir,
+          sess=sess)
     return result_dict
 
-  def _process_aggregated_results(result_lists):
+  def _process_aggregated_results(result_lists, sess):
     eval_metric_fn_key = eval_config.metrics_set
     if eval_metric_fn_key not in EVAL_METRICS_FN_DICT:
       raise ValueError('Metric not found: {}'.format(eval_metric_fn_key))
     return EVAL_METRICS_FN_DICT[eval_metric_fn_key](result_lists,
-                                                    categories=categories)
+                                                    categories=categories,
+                                                    sess=sess)
 
   variables_to_restore = tf.global_variables()
   global_step = slim.get_or_create_global_step()

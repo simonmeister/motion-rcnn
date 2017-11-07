@@ -30,7 +30,7 @@ slim_example_decoder = tf.contrib.slim.tfexample_decoder
 class TfExampleDecoder(data_decoder.DataDecoder):
   """Tensorflow Example proto decoder."""
 
-  def __init__(self):
+  def __init__(self, load_detection_gt, load_motion_gt, load_XYZ):
     """Constructor sets keys_to_features and items_to_handlers."""
     self.keys_to_features = {
         'image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),
@@ -40,28 +40,10 @@ class TfExampleDecoder(data_decoder.DataDecoder):
         'image/source_id': tf.FixedLenFeature((), tf.string, default_value=''),
         'image/height': tf.FixedLenFeature((), tf.int64, 1),
         'image/width': tf.FixedLenFeature((), tf.int64, 1),
-        # Object boxes and classes.
-        'image/object/bbox/xmin': tf.VarLenFeature(tf.float32),
-        'image/object/bbox/xmax': tf.VarLenFeature(tf.float32),
-        'image/object/bbox/ymin': tf.VarLenFeature(tf.float32),
-        'image/object/bbox/ymax': tf.VarLenFeature(tf.float32),
-        'image/object/class/label': tf.VarLenFeature(tf.int64),
-        'image/object/area': tf.VarLenFeature(tf.float32),
-        'image/object/is_crowd': tf.VarLenFeature(tf.int64),
-        'image/object/difficult': tf.VarLenFeature(tf.int64),
-        # Instance masks and classes.
-        'image/segmentation/object/index_0': tf.VarLenFeature(tf.int64),
-        'image/segmentation/object/index_1': tf.VarLenFeature(tf.int64),
-        'image/segmentation/object/index_2': tf.VarLenFeature(tf.int64),
-        'image/segmentation/object/class': tf.VarLenFeature(tf.int64),
-        'image/segmentation/object/count': tf.FixedLenFeature((), tf.int64, 1),
         # Motion R-CNN
         'next_image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),
-        'image/object/motion': tf.VarLenFeature(tf.float32),
-        'image/camera/motion': tf.FixedLenFeature((12,), tf.float32),
         'image/camera/intrinsics': tf.FixedLenFeature((3,), tf.float32),
         'image/depth': tf.VarLenFeature(tf.float32),
-        'next_image/depth': tf.VarLenFeature(tf.float32),
         'image/flow': tf.VarLenFeature(tf.float32)
     }
     self.items_to_handlers = {
@@ -73,53 +55,99 @@ class TfExampleDecoder(data_decoder.DataDecoder):
             slim_example_decoder.Tensor('image/key/sha256')),
         fields.InputDataFields.filename: (
             slim_example_decoder.Tensor('image/filename')),
-        # Object boxes and classes.
-        fields.InputDataFields.groundtruth_boxes: (
-            slim_example_decoder.BoundingBox(
-                ['ymin', 'xmin', 'ymax', 'xmax'], 'image/object/bbox/')),
-        fields.InputDataFields.groundtruth_classes: (
-            slim_example_decoder.Tensor('image/object/class/label')),
-        fields.InputDataFields.groundtruth_area: slim_example_decoder.Tensor(
-            'image/object/area'),
-        fields.InputDataFields.groundtruth_is_crowd: (
-            slim_example_decoder.Tensor('image/object/is_crowd')),
-        fields.InputDataFields.groundtruth_difficult: (
-            slim_example_decoder.Tensor('image/object/difficult')),
-        # Instance masks and classes.
-        fields.InputDataFields.groundtruth_instance_masks: (
-            slim_example_decoder.ItemHandlerCallback(
-                ['image/segmentation/object/index_0',
-                 'image/segmentation/object/index_1',
-                 'image/segmentation/object/index_2',
-                 'image/segmentation/object/count',
-                 'image/height', 'image/width'],
-                self._decode_instance_masks)),
-        fields.InputDataFields.groundtruth_instance_classes: (
-            slim_example_decoder.Tensor('image/segmentation/object/class')),
         # Motion R-CNN
         fields.InputDataFields.next_image: slim_example_decoder.Image(
             image_key='next_image/encoded', format_key='image/format', channels=3),
-        fields.InputDataFields.groundtruth_instance_motions: (
-            slim_example_decoder.ItemHandlerCallback(
-                ['image/object/motion', 'image/segmentation/object/count'],
-                self._decode_instance_motions)),
-        fields.InputDataFields.groundtruth_camera_motion: (
-            slim_example_decoder.Tensor('image/camera/motion')),
         fields.InputDataFields.camera_intrinsics: (
             slim_example_decoder.Tensor('image/camera/intrinsics')),
         fields.InputDataFields.groundtruth_depth: (
             slim_example_decoder.ItemHandlerCallback(
                 ['image/depth', 'image/height', 'image/width'],
                 self._decode_depth)),
-        fields.InputDataFields.groundtruth_next_depth: (
-            slim_example_decoder.ItemHandlerCallback(
-                ['next_image/depth', 'image/height', 'image/width'],
-                self._decode_next_depth)),
         fields.InputDataFields.groundtruth_flow: (
             slim_example_decoder.ItemHandlerCallback(
                 ['image/flow', 'image/height', 'image/width'],
                 self._decode_flow))
     }
+    if load_XYZ:
+      self.keys_to_features.update({
+          # Motion R-CNN
+          'next_image/depth': tf.VarLenFeature(tf.float32)
+      })
+      self.items_to_handlers.update({
+          fields.InputDataFields.groundtruth_next_depth: (
+              slim_example_decoder.ItemHandlerCallback(
+                  ['next_image/depth', 'image/height', 'image/width'],
+                  self._decode_next_depth))
+      })
+
+    if load_detection_gt:
+      self.keys_to_features.update({
+          # Object boxes and classes.
+          'image/object/bbox/xmin': tf.VarLenFeature(tf.float32),
+          'image/object/bbox/xmax': tf.VarLenFeature(tf.float32),
+          'image/object/bbox/ymin': tf.VarLenFeature(tf.float32),
+          'image/object/bbox/ymax': tf.VarLenFeature(tf.float32),
+          'image/object/class/label': tf.VarLenFeature(tf.int64),
+          'image/object/area': tf.VarLenFeature(tf.float32),
+          'image/object/is_crowd': tf.VarLenFeature(tf.int64),
+          'image/object/difficult': tf.VarLenFeature(tf.int64),
+          # Instance masks and classes.
+          'image/segmentation/object/index_0': tf.VarLenFeature(tf.int64),
+          'image/segmentation/object/index_1': tf.VarLenFeature(tf.int64),
+          'image/segmentation/object/index_2': tf.VarLenFeature(tf.int64),
+          'image/segmentation/object/class': tf.VarLenFeature(tf.int64),
+          'image/segmentation/object/count': tf.FixedLenFeature((), tf.int64, 1),
+      })
+      self.items_to_handlers.update({
+          # Object boxes and classes.
+          fields.InputDataFields.groundtruth_boxes: (
+              slim_example_decoder.BoundingBox(
+                  ['ymin', 'xmin', 'ymax', 'xmax'], 'image/object/bbox/')),
+          fields.InputDataFields.groundtruth_classes: (
+              slim_example_decoder.Tensor('image/object/class/label')),
+          fields.InputDataFields.groundtruth_area: slim_example_decoder.Tensor(
+              'image/object/area'),
+          fields.InputDataFields.groundtruth_is_crowd: (
+              slim_example_decoder.Tensor('image/object/is_crowd')),
+          fields.InputDataFields.groundtruth_difficult: (
+              slim_example_decoder.Tensor('image/object/difficult')),
+          # Instance masks and classes.
+          fields.InputDataFields.groundtruth_instance_masks: (
+              slim_example_decoder.ItemHandlerCallback(
+                  ['image/segmentation/object/index_0',
+                   'image/segmentation/object/index_1',
+                   'image/segmentation/object/index_2',
+                   'image/segmentation/object/count',
+                   'image/height', 'image/width'],
+                  self._decode_instance_masks)),
+          fields.InputDataFields.groundtruth_instance_classes: (
+              slim_example_decoder.Tensor('image/segmentation/object/class')),
+      })
+
+    if load_motion_gt:
+      self.keys_to_features.update({
+          # Motion R-CNN
+          'image/camera/motion': tf.FixedLenFeature((12,), tf.float32)
+      })
+      self.items_to_handlers.update({
+          # Motion R-CNN
+          fields.InputDataFields.groundtruth_camera_motion: (
+              slim_example_decoder.Tensor('image/camera/motion')),
+      })
+      if load_detection_gt:
+        self.keys_to_features.update({
+            # Motion R-CNN
+            'image/object/motion': tf.VarLenFeature(tf.float32)
+        })
+        self.items_to_handlers.update({
+            # Motion R-CNN
+            fields.InputDataFields.groundtruth_instance_motions: (
+                slim_example_decoder.ItemHandlerCallback(
+                    ['image/object/motion', 'image/segmentation/object/count'],
+                    self._decode_instance_motions))
+        })
+
 
   def decode(self, tf_example_string_tensor):
     """Decodes serialized tensorflow example and returns a tensor dictionary.

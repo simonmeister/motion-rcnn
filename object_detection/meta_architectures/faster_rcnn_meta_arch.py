@@ -1460,6 +1460,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
                    groundtruth_camera_motion_list):
     loss_dict = {}
     if predicted_camera_motion is not None:
+      if groundtruth_camera_motion_list is None:
+        raise RuntimeError("No ground truth camera motion provided.")
       groundtruth_camera_motion = tf.stack(
         groundtruth_camera_motion_list, axis=0)
       camera_motion_losses = motion_util.camera_motion_loss(

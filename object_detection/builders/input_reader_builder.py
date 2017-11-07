@@ -60,6 +60,10 @@ def build(input_reader_config):
         capacity=input_reader_config.queue_capacity,
         min_after_dequeue=input_reader_config.min_after_dequeue)
 
-    return tf_example_decoder.TfExampleDecoder().decode(string_tensor)
+    return tf_example_decoder.TfExampleDecoder(
+        input_reader_config.load_detection_groundtruth,
+        input_reader_config.load_motion_groundtruth,
+        input_reader_config.load_XYZ
+    ).decode(string_tensor)
 
   raise ValueError('Unsupported input_reader_config.')

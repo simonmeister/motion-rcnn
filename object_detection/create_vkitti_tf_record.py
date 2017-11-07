@@ -142,6 +142,7 @@ def _create_tfexample(label_map_dict,
       mask = (mask == 3).astype(np.uint8)
       masks.append(mask)
       p1 = _get_pivot(row)
+      moving = row['moving']
       if row['moving'] == 1:
         r1 = _euler_to_rot(row)
         r2_cam2 = _euler_to_rot(next_row)
@@ -155,7 +156,7 @@ def _create_tfexample(label_map_dict,
       else:
         r1_to_r2 = np.eye(3, dtype=np.float32)
         p1_to_p2 = np.zeros([3], dtype=np.float32)
-      motion = np.concatenate([r1_to_r2.ravel(), p1_to_p2, p1])
+      motion = np.concatenate([r1_to_r2.ravel(), p1_to_p2, p1]) # moving
       motions.append(motion)
   if len(boxes) > 0:
       boxes = np.stack(boxes, axis=0)

@@ -110,12 +110,12 @@ def _get_inputs(input_queue, num_classes):
     image = read_data[fields.InputDataFields.image]
     next_image = read_data.get(fields.InputDataFields.next_image)
     image_input = image
-    if next_image is not None: # TODO make this controllable from proto entry inside of loader: load_next_image
+    if next_image is not None:
       image_input = tf.concat([image_input, tf.expand_dims(next_image, 0)], 3)
       depth = read_data.get(fields.InputDataFields.groundtruth_depth)
       next_depth = read_data.get(fields.InputDataFields.groundtruth_next_depth)
       image_input.set_shape([1, None, None, 6])
-      if depth is not None and next_depth is not None: # TODO make controllable from proto entry: load_coords
+      if depth is not None and next_depth is not None:
         camera_intrinsics = read_data[fields.InputDataFields.camera_intrinsics]
         coords = motion_util.get_3D_coords(
             tf.expand_dims(depth, 0), camera_intrinsics)

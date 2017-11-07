@@ -55,7 +55,8 @@ def evaluate_detection_results_pascal_voc(result_lists,
                                           categories,
                                           label_id_offset=0,
                                           iou_thres=0.5,
-                                          corloc_summary=False):
+                                          corloc_summary=False,
+                                          sess=None):
   """Computes Pascal VOC detection metrics given groundtruth and detections.
 
   This function computes Pascal VOC metrics. This function by default
@@ -160,7 +161,15 @@ def evaluate_detection_results_pascal_voc(result_lists,
                 iou_thres, category_index[idx]['name']))
         metrics[display_name] = per_class_corloc[idx]
 
+  def _average_eval_dicts(eval_dicts):
+    eval_dict = {}
+    for k in eval_dicts[0].keys():
+      eval_dict[k] = sum([d[k] for d in eval_dicts]) / len(image_ids)
+    return eval_dict
+
   if 'detection_motions' in result_lists:
+    detection_motions_list = result_lists['detection_motions']
+    # Evaluate instance motions
     motion_eval_dicts = []
     for i in range(len(image_ids)):
       detection_boxes = result_lists['detection_boxes'][i]
@@ -170,16 +179,33 @@ def evaluate_detection_results_pascal_voc(result_lists,
             gt_boxes,
             result_lists['groundtruth_instance_motions'][i],
             detection_boxes,
-            result_lists['detection_motions'][i],
+            detection_motions_list[i],
             matching_iou_threshold=iou_thres)
         motion_eval_dicts.append(motion_eval_dict)
-    motion_eval_dict = {}
-    for k in motion_eval_dicts[0].keys():
-      motion_eval_dict[k] = sum(
-          [d[k] for d in motion_eval_dicts]) / len(image_ids)
+    motion_eval_dict = _average_eval_dicts(motion_eval_dicts)
     for k, v in motion_eval_dict.items():
-      display_name = 'Motion/Error@{}IOU/{}'.format(iou_thres, k)
+      display_name = 'InstanceMotion/Error@{}IOU/{}'.format(iou_thres, k)
       metrics[display_name] = v
+    # Evaluate Optical flow
+    flow_list = result_lists.get('groundtruth_flow')
+    camera_motion_list = result_lists.get(
+        'camera_motion', result_lists.get('groundtruth_camera_motion'))
+    if flow_list is not None and camera_motion_list is not None:
+      flow_eval_dicts = []
+      for i in range(len(image_ids)):
+        with sess.as_default():
+          flow_eval_dict = np_motion_util.evaluate_optical_flow(
+              result_lists['depth'][i],
+              detection_motions_list[i],
+              result_lists['detection_masks'][i],
+              camera_motion_list[i],
+              result_lists['camera_intrinsics'][i],
+              flow_list[i])
+        flow_eval_dicts.append(flow_eval_dict)
+      flow_eval_dict = _average_eval_dicts(flow_eval_dicts)
+      for k, v in flow_eval_dict.items():
+        display_name = 'Flow/Error/{}'.format(k)
+        metrics[display_name] = v
 
   if 'camera_motion' in result_lists:
     motion_eval_dicts = []
@@ -188,10 +214,7 @@ def evaluate_detection_results_pascal_voc(result_lists,
           result_lists['camera_motion'][i],
           result_lists['groundtruth_camera_motion'][i])
       motion_eval_dicts.append(motion_eval_dict)
-    motion_eval_dict = {}
-    for k in motion_eval_dicts[0].keys():
-      motion_eval_dict[k] = sum(
-          [d[k] for d in motion_eval_dicts]) / len(image_ids)
+    motion_eval_dict = _average_eval_dicts(motion_eval_dicts)
     for k, v in motion_eval_dict.items():
       display_name = 'CameraMotion/Error@{}IOU/{}'.format(iou_thres, k)
       metrics[display_name] = v
@@ -209,7 +232,8 @@ def visualize_detection_results(result_dict,
                                 agnostic_mode=False,
                                 show_groundtruth=False,
                                 min_score_thresh=.5,
-                                max_num_predictions=20):
+                                max_num_predictions=20,
+                                sess=None):
   """Visualizes detection results and writes visualizations to image summaries.
 
   This function visualizes an image with its detected bounding boxes and writes
@@ -308,13 +332,15 @@ def visualize_detection_results(result_dict,
           encoded_image_string=vis_utils.encode_image_array_as_png_str(
               image)))]
 
-  if detection_motions is not None:
-    with tf.Session().as_default():
+  camera_motion = result_dict.get(
+      'camera_motion', result_dict.get('groundtruth_camera_motion'))
+  if detection_motions is not None and camera_motion is not None:
+    with sess.as_default():
       flow_image, flow_error_image = vis_utils.visualize_flow(
           result_dict['depth'],
           detection_motions,
           detection_scores,
-          result_dict['groundtruth_camera_motion'],
+          camera_motion,
           result_dict['camera_intrinsics'],
           masks=detection_masks,
           groundtruth_flow=result_dict.get('groundtruth_flow'),
@@ -463,7 +489,7 @@ def run_checkpoint_once(tensor_dict,
       logging.info('Done evaluating -- epoch limit reached')
     finally:
       # When done, ask the threads to stop.
-      metrics = aggregated_result_processor(result_lists)
+      metrics = aggregated_result_processor(result_lists, sess)
       if other_metrics is not None:
         metrics.update(other_metrics)
       global_step = tf.train.global_step(sess, slim.get_global_step())

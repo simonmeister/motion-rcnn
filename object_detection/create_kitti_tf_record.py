@@ -12,8 +12,10 @@ import cv2
 import hashlib
 import pandas as pd
 import shutil
+import matplotlib.pyplot as plt
 
 import numpy as np
+from scipy.interpolate import griddata
 import tensorflow as tf
 from tensorflow.python.lib.io.tf_record import TFRecordCompressionType
 
@@ -43,9 +45,10 @@ def _read_flow(flow_fn):
   rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
   h, w, _c = rgb.shape
   assert rgb.dtype == np.uint16 and _c == 3
-  invalid = rgb[:, 2] == 0
+  invalid = rgb[:, :, 2] == 0
   # g,r == flow_y,x normalized by height,width and scaled to [0;2**16 - 1]
-  out_flow = (rgb[:, :2] - 2 ** 15) / 64.0
+  out_flow = (rgb[:, :, :2] - 2 ** 15) / 64.0
+  print(out_flow.shape, invalid.shape)
   out_flow[invalid] = np.nan # 0 or another value (e.g., np.nan)
   return out_flow
 
@@ -77,19 +80,37 @@ def _get_record_filename(record_dir, shard_id, num_shards):
     return os.path.join(record_dir, output_filename)
 
 
-def _depth_from_disparity_image(disparity_image, f, b):
-  disparity = disparity_img.astype(np.float32) / 256.
+def _interp_nan(array):
+  x = np.arange(0, array.shape[1])
+  y = np.arange(0, array.shape[0])
+  array = np.ma.masked_invalid(array)
+  xx, yy = np.meshgrid(x, y)
+  x1 = xx[~array.mask]
+  y1 = yy[~array.mask]
+  newarr = array[~array.mask]
+  return griddata((x1, y1), newarr.ravel(), (xx, yy), method='linear', fill_value=0.0)
+
+
+def _depth_from_disparity_image(disparity_image, f):
+  disparity = disparity_image.astype(np.float32) / 256.
   depth = KITTI_BASELINE_METERS * f / disparity # TODO check units
-  depth[disparity_img == 0] = np.nan
+  depth[disparity_image == 0] = np.nan
+  # Interpolate missing values
+  depth = _interp_nan(depth)
+
+  plt.imshow(depth[:, :], cmap='gray')
+  plt.show()
+  return depth
 
 
 def _create_tfexample(label_map_dict,
                       image_id, encoded_image, encoded_next_image,
-                      disparity_image, next_disparity_image, flow,
-                      camera_intrinsics):
+                      disparity_image, next_disparity_image, flow):
+  #camera_intrinsics = np.array([982.529, 690.0, 233.1966])
+  camera_intrinsics = np.array([725.0, 620.5, 187.0], dtype=np.float32)
   f, x0, y0 = camera_intrinsics
-  depth = _depth_from_disparity(disparity, f, b)
-  next_depth = _depth_from_disparity(next_disparity, f, b)
+  depth = _depth_from_disparity_image(disparity_image, f)
+  next_depth = _depth_from_disparity_image(next_disparity_image, f)
 
   key = hashlib.sha256(encoded_image).hexdigest()
   example = tf.train.Example(features=tf.train.Features(feature={
@@ -114,62 +135,18 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
   """Loads images and ground truth to a TFRecord.
   Note: masks and bboxes will lose shape info after converting to string.
   """
-  vkitti_prefix = 'vkitti_1.3.1_'
-
-  styles = ['clone']
-
-  def _collect_image_sequences(suffix):
-    type_dir = os.path.join(dataset_dir, vkitti_prefix + suffix)
-    seqs = []
-    for seq_name in sorted(os.listdir(type_dir)):
-      seq_dir = os.path.join(type_dir, seq_name)
-      if os.path.isdir(seq_dir):
-        for style_name in sorted(os.listdir(seq_dir)):
-          if style_name in styles:
-            style_dir = os.path.join(seq_dir, style_name)
-            seqs.append([os.path.join(style_dir, image_name)
-                         for image_name in sorted(os.listdir(style_dir))])
-    return seqs
-
-  # a seq consits of .png filenames
-  image_seqs = _collect_image_sequences('rgb')
-  depth_seqs = _collect_image_sequences('depthgt')
-  flow_seqs = _collect_image_sequences('flowgt')
-  segmentation_seqs = _collect_image_sequences('scenegt')
-
-  def _pad_trailing(seqs, ref_seqs):
-    for seq, ref_seq in zip(seqs, ref_seqs):
-      padding = len(ref_seq) - len(seq)
-      for _ in range(padding):
-        seq.append([])
-
-  extrinsics_seqs = _collect_line_sequences('extrinsicsgt')
-  tracking_seqs = _collect_line_sequences('motgt')
-  segmentation_color_map_seqs = _collect_line_sequences('scenegt', frame_field=None)
-  _pad_trailing(tracking_seqs, extrinsics_seqs)
-
-  def _seq_total_len(seqs, last_missing=False):
-    return sum([len(seq) + (1 if last_missing else 0) for seq in seqs])
-
-  assert _seq_total_len(image_seqs) == _seq_total_len(depth_seqs) \
-      == _seq_total_len(flow_seqs, True) == _seq_total_len(extrinsics_seqs) \
-      == _seq_total_len(tracking_seqs) == _seq_total_len(segmentation_seqs)
-  assert len(segmentation_color_map_seqs) == len(image_seqs)
-
-  seq_lists = zip(image_seqs, depth_seqs, flow_seqs, segmentation_seqs,
-                  extrinsics_seqs, tracking_seqs)
-
   example_infos = []
-  for seq_i, seq_list in enumerate(seq_lists):
-    (image_seq, depth_seq, flow_seq, segmentation_seq,
-     extrinsics_seq, tracking_seq) = seq_list
-    for i in range(len(image_seq) - 1):
-      example_infos.append(
-          (seq_i, i,
-           image_seq[i], image_seq[i + 1],
-           depth_seq[i], depth_seq[i + 1], flow_seq[i], segmentation_seq[i],
-           extrinsics_seq[i], extrinsics_seq[i + 1],
-           tracking_seq[i], tracking_seq[i + 1]))
+  for i in range(200):
+    n = str(i).zfill(6)
+    p = os.path.join(dataset_dir, 'training')
+    example_infos.append((
+        i,
+        os.path.join(p, 'image_2', n + '_10.png'),
+        os.path.join(p, 'image_2', n + '_11.png'),
+        os.path.join(p, 'disp_occ_0', n + '_10.png'),
+        os.path.join(p, 'disp_occ_1', n + '_10.png'),
+        os.path.join(p, 'flow_occ', n + '_10.png')
+    ))
 
   if is_training:
     random.seed(0)
@@ -194,30 +171,25 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
       end_ndx = min((shard_id + 1) * num_per_shard, len(example_infos))
 
       for i in range(start_ndx, end_ndx):
-        (seq_id, frame_id,
-         image_fn, next_image_fn, depth_fn, next_depth_fn, flow_fn, segmentation_fn,
-         extrinsics_rows, next_extrinsics_rows,
-         tracking_rows, next_tracking_rows) = example_infos[i]
+        (frame_id,
+         image_fn, next_image_fn, depth_fn, next_depth_fn, flow_fn
+         ) = example_infos[i]
 
         if i % 1 == 0:
           sys.stdout.write('\r>> Converting image %d/%d shard %d\n' % (
               i + 1, len(example_infos), shard_id))
           sys.stdout.flush()
 
-        image_id = '{}_{}'.format(seq_id, frame_id)
+        image_id = str(frame_id)
         image = _read_image(image_fn)
         next_image = _read_image(next_image_fn)
-        segmentation = _read_image(segmentation_fn, rgb=True)
-        depth = _read_depth(depth_fn)
-        next_depth = _read_depth(next_depth_fn)
+        depth = _read_disparity_image(depth_fn)
+        next_depth = _read_disparity_image(next_depth_fn)
         flow = _read_flow(flow_fn)
 
         example, num_instances = _create_tfexample(
             label_map_dict,
-            image_id, image, next_image, depth, next_depth, flow, segmentation,
-            extrinsics_rows[0], next_extrinsics_rows[0],
-            tracking_rows, next_tracking_rows,
-            segmentation_color_maps[seq_id])
+            image_id, image, next_image, depth, next_depth, flow)
 
         if num_instances > 0 or is_training == False:
           created_count += 1

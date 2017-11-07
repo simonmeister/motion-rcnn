@@ -3,7 +3,7 @@
 #include <math.h>
 #include <string>
 
-#include "io_flow.h"
+#include "io_disp.h"
 #include "utils.h"
 
 using namespace std;
@@ -17,9 +17,9 @@ int32_t main (int32_t argc,char *argv[]) {
     return 1;
   }
 
-  FlowImage flow(argv[1]);
-  flow.interpolateBackground();
-  flow.write(argv[2]);
+  DisparityImage disp(argv[1]);
+  disp.interpolateBackground();
+  disp.write(argv[2]);
 
   return 0;
 }

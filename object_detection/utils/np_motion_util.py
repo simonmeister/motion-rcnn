@@ -4,9 +4,12 @@
 # Written by Simon Meister
 # --------------------------------------------------------
 import numpy as np
+import tensorflow as tf
 
 from object_detection.utils import np_box_list
 from object_detection.utils import np_box_list_ops
+from object_detection.utils import np_flow_util
+from object_detection.utils import flow_util
 
 
 def _pixels_to_3d(x, y, d, camera_intrinsics):
@@ -69,6 +72,24 @@ def dense_flow_from_motion(depth, motions, masks, camera_motion,
 
   flow = points_t - points
   return flow.astype(np.float32)
+
+
+def evaluate_optical_flow(depth, motions, masks, camera_motion,
+                          camera_intrinsics, gt_flow):
+  """Note: currently, calls can only be made inside a tf.Session."""
+  flow = dense_flow_from_motion(
+      depth, motions, masks, camera_motion, camera_intrinsics)
+  gt_flow, gt_flow_mask = np_flow_util.gt_flow_and_mask(gt_flow)
+
+  # to tensorflow
+  flow = tf.expand_dims(flow, 0)
+  gt_flow = tf.expand_dims(gt_flow, 0)
+  gt_flow_mask = tf.expand_dims(gt_flow_mask, 0)
+  avg = flow_util.flow_error_avg(gt_flow, flow, gt_flow_mask).eval()
+  outliers = flow_util.outlier_ratio(gt_flow, flow, gt_flow_mask).eval()
+
+  error_dict = {'AEE': avg.item(), 'Fl-all': outliers.item()}
+  return error_dict
 
 
 def euler_to_rot(x, y, z):
@@ -185,7 +206,7 @@ def evaluate_instance_motions(gt_boxes,
 
 
 def evaluate_camera_motion(pred, target):
-  mock_pivot = tf.zeros([1, 3])
+  mock_pivot = np.zeros([1, 3])
   error_dict = _motion_errors(
     np.concatenate([np.expand_dims(pred, 0), mock_pivot], axis=1),
     np.concatenate([np.expand_dims(target, 0), mock_pivot], axis=1))
