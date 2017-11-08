@@ -19,7 +19,7 @@ from tensorflow.python.lib.io.tf_record import TFRecordCompressionType
 
 from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
-from object_detection.utils.np_motion_util import dense_flow_from_motion, euler_to_rot
+from object_detection.utils.np_motion_util import dense_flow_from_motion, euler_to_rot, _rotation_angle
 
 
 flags = tf.app.flags
@@ -107,6 +107,7 @@ def _create_tfexample(label_map_dict,
       np.array(list(extrinsics_dict.values())[1:], dtype=np.float32), [4, 4])
   next_extrinsics = np.reshape(
       np.array(list(next_extrinsics_dict.values())[1:], dtype=np.float32), [4, 4])
+  camera_moving = not np.allclose(extrinsics, next_extrinsics)
   rot_cam1 = extrinsics[:3, :3]
   rot_cam2 = next_extrinsics[:3, :3]
   trans_cam1 = extrinsics[:3, 3]
@@ -115,7 +116,8 @@ def _create_tfexample(label_map_dict,
   rot_cam1_to_cam2 = rot_cam2_to_cam1.T
   trans_cam1_to_cam2 = trans_cam2 - rot_cam1_to_cam2 @ trans_cam1
   camera_motion = np.concatenate([rot_cam1_to_cam2.ravel(),
-                                  trans_cam1_to_cam2.ravel()])
+                                  trans_cam1_to_cam2.ravel(),
+                                  np.array([camera_moving], dtype=np.float32)])
   cam2_to_cam1_hom = extrinsics @ np.linalg.inv(next_extrinsics)
 
   boxes = []
@@ -142,21 +144,26 @@ def _create_tfexample(label_map_dict,
       mask = (mask == 3).astype(np.uint8)
       masks.append(mask)
       p1 = _get_pivot(row)
-      moving = row['moving']
-      if row['moving'] == 1:
-        r1 = _euler_to_rot(row)
-        r2_cam2 = _euler_to_rot(next_row)
-        r2 = rot_cam2_to_cam1 @ r2_cam2
-        r1_to_r2 = r2 @ r1.T
-        p2 = _get_pivot(next_row)
-        p2_hom = np.concatenate([p2, np.array([1])])
-        p2_cam1_hom = cam2_to_cam1_hom @ p2_hom
-        p2_cam1 = p2_cam1_hom[:3] / p2_cam1_hom[3]
-        p1_to_p2 = p2_cam1 - p1
-      else:
+      moving = int(row['moving'])
+
+      r1 = _euler_to_rot(row)
+      r2_cam2 = _euler_to_rot(next_row)
+      r2 = rot_cam2_to_cam1 @ r2_cam2
+      r1_to_r2 = r2 @ r1.T
+      p2 = _get_pivot(next_row)
+      p2_hom = np.concatenate([p2, np.array([1])])
+      p2_cam1_hom = cam2_to_cam1_hom @ p2_hom
+      p2_cam1 = p2_cam1_hom[:3] / p2_cam1_hom[3]
+      p1_to_p2 = p2_cam1 - p1
+      if moving == 0:
+        if not np.allclose(p1_to_p2, np.zeros_like(p1_to_p2), atol=1e-4):
+          print('trans', np.mean(p1_to_p2))
+        if not np.allclose(r1_to_r2, np.eye(3), atol=1e-2):
+          print('rot', np.arccos(np.clip((np.trace(r1_to_r2, axis1=0, axis2=1) - 1) / 2, -1, 1)))
         r1_to_r2 = np.eye(3, dtype=np.float32)
         p1_to_p2 = np.zeros([3], dtype=np.float32)
-      motion = np.concatenate([r1_to_r2.ravel(), p1_to_p2, p1]) # moving
+      motion = np.concatenate([r1_to_r2.ravel(), p1_to_p2, p1,
+                               np.array([moving], dtype=np.float32)])
       motions.append(motion)
   if len(boxes) > 0:
       boxes = np.stack(boxes, axis=0)

@@ -74,15 +74,15 @@ def motion_loss(pred, target, weights):
   """
   batch_size, num_anchors = tf.unstack(tf.shape(pred)[:2])
 
-  l_angle, l_trans, l_pivot = _motion_losses(
-      tf.reshape(pred, [-1, 9]),
-      tf.reshape(target, [-1, 15]))
+  l_angle, l_trans, l_pivot, l_moving, gt_moving = _motion_losses(
+      tf.reshape(pred, [-1, 11]),
+      tf.reshape(target, [-1, 16]))
 
-  loss = l_angle + l_trans + l_pivot
+  loss = (l_angle + l_trans) * gt_moving + l_pivot + l_moving
   return tf.reshape(loss, [batch_size, num_anchors]) * weights
 
 
-def _motion_losses(pred, target):
+def _motion_losses(pred, target, has_moving=True):
   """
   Args:
     pred: tensor of shape [num_predictions, 9] containing predicted
@@ -119,16 +119,37 @@ def _motion_losses(pred, target):
   l_angle = _smoothl1_loss(d_rot)
   l_trans = _smoothl1_loss(d_trans)
   l_pivot = _smoothl1_loss(d_pivot)
-  return l_angle, l_trans, l_pivot
+
+  if has_moving:
+    moving = pred[:, 15:17]
+    gt_moving = target[:, 15]
+    l_moving = tf.nn.softmax_cross_entropy_with_logits(
+        labels=tf.one_hot(tf.cast(gt_moving, dtype=tf.int32),
+                          depth=2, dtype=tf.float32),
+        logits=moving)
+  else:
+    l_moving = None,
+    gt_moving = None
+
+  return l_angle, l_trans, l_pivot, l_moving, gt_moving
 
 
-def postprocess_detection_motions(pred):
+def postprocess_detection_motions(pred, testing=False, has_moving=True):
   """Convert predicted motions to use matrix representation for rotations.
-  Restrict range of angle sines to [-1, 1]"""
+  Restrict range of angle sines to [-1, 1].
+  If testing=true, convert moving scores to output."""
   angle_sines = clip_to_open_interval(pred[:, 0:3])
   rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
   rot_flat = tf.reshape(rot, [-1, 9])
-  return tf.concat([rot_flat, pred[:, 3:]], axis=1)
+  trans_piv = pred[:, 3:9]
+  res = tf.concat([rot_flat, trans_piv], axis=1)
+  if has_moving:
+    moving = pred[:, 9:11]
+    if testing:
+      moving_score = tf.nn.softmax(moving)[:, 1:2]
+      moving = tf.cast(moving_score > 0.5, dtype=tf.float32)
+    res = tf.concat([res, moving], axis=1)
+  return res
 
 
 def postprocess_camera_motion(pred):
@@ -147,11 +168,12 @@ def camera_motion_loss(pred, target):
   """
   batch_size = tf.unstack(tf.shape(pred))[0]
   mock_pivot = tf.zeros([batch_size, 3])
-  err_angle, err_trans, _ = _motion_losses(
+  l_angle, l_trans, _, _, _ = _motion_losses(
     tf.concat([pred, mock_pivot], axis=1),
-    tf.concat([target, mock_pivot], axis=1))
+    tf.concat([target, mock_pivot], axis=1),
+    has_moving=False)
 
-  return err_angle + err_trans
+  return l_angle + l_trans
 
 
 def get_3D_coords(depth, camera_intrinsics):

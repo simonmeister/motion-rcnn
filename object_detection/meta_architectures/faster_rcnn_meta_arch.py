@@ -566,9 +566,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
     return prediction_dict
 
   def _predict_camera_motion(self, rpn_bottleneck_features):
-    bottleneck_features = self._feature_extractor._extract_bottleneck_features(
-        rpn_bottleneck_features, scope='BottleneckFeatures')
-    pooled_features = tf.reduce_mean(bottleneck_features, [1, 2], keep_dims=True)
+    camera_features = self._feature_extractor._extract_camera_features(
+        rpn_bottleneck_features, scope='CameraFeatures')
+    pooled_features = tf.reduce_mean(camera_features, [1, 2], keep_dims=True)
     with slim.arg_scope(self._first_stage_camera_motion_arg_scope):
       cam_features = slim.flatten(pooled_features)
       for _ in range(2):

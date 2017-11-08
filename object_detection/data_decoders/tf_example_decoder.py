@@ -30,7 +30,7 @@ slim_example_decoder = tf.contrib.slim.tfexample_decoder
 class TfExampleDecoder(data_decoder.DataDecoder):
   """Tensorflow Example proto decoder."""
 
-  def __init__(self, load_detection_gt, load_motion_gt, load_XYZ):
+  def __init__(self, load_detection_gt=True, load_motion_gt=True, load_XYZ=True):
     """Constructor sets keys_to_features and items_to_handlers."""
     self.keys_to_features = {
         'image/encoded': tf.FixedLenFeature((), tf.string, default_value=''),
@@ -128,7 +128,7 @@ class TfExampleDecoder(data_decoder.DataDecoder):
     if load_motion_gt:
       self.keys_to_features.update({
           # Motion R-CNN
-          'image/camera/motion': tf.FixedLenFeature((12,), tf.float32)
+          'image/camera/motion': tf.FixedLenFeature((13,), tf.float32)
       })
       self.items_to_handlers.update({
           # Motion R-CNN
@@ -257,4 +257,4 @@ class TfExampleDecoder(data_decoder.DataDecoder):
     if isinstance(motions, tf.SparseTensor):
       motions = tf.sparse_tensor_to_dense(motions)
     num_instances = keys_to_tensors['image/segmentation/object/count']
-    return tf.reshape(motions, tf.cast(tf.stack([num_instances, 15], 0), tf.int32))
+    return tf.reshape(motions, tf.cast(tf.stack([num_instances, 16], 0), tf.int32))

@@ -329,7 +329,7 @@ class MaskRCNNBoxPredictor(BoxPredictor):
     self._predict_keypoints = predict_keypoints
     self._fpn_fc_branch = fpn_fc_branch
     self._predict_instance_motions = predict_instance_motions
-    self._num_motion_params = 9 # TODO put this number somewhere else
+    self._num_motion_params = 11 # TODO put this number somewhere else
     if self._predict_keypoints:
       raise ValueError('Keypoint prediction is unimplemented.')
     if ((self._predict_instance_masks or self._predict_keypoints) and
@@ -452,7 +452,7 @@ class MaskRCNNBoxPredictor(BoxPredictor):
     if self._predict_instance_motions:
       with slim.arg_scope(self._fc_hyperparams):
         motion_features = flattened_image_features
-        for _ in range(1):
+        for _ in range(2):
           motion_features = slim.fully_connected(motion_features, 1024)
         motion_predictions = slim.fully_connected(
             motion_features,

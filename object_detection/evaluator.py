@@ -108,7 +108,7 @@ def _extract_prediction_tensors(model,
     detection_motions = tf.squeeze(detections['detection_motions'],
                                    axis=0)
     detection_motions_with_matrices = (
-        motion_util.postprocess_detection_motions(detection_motions))
+        motion_util.postprocess_detection_motions(detection_motions, testing=True))
     tensor_dict['detection_motions'] = detection_motions_with_matrices
 
   if 'camera_motion' in detections:

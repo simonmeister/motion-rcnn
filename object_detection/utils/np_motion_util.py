@@ -37,7 +37,8 @@ def dense_flow_from_motion(depth, motions, masks, camera_motion,
 
   Args:
     depth: array with shape [height, width, 1].
-    motions: array with shape [num_detections, 15].
+    motions: array with shape [num_detections, 16],
+      (rot_9, trans_3, piv_3, moving_1).
     masks: array with shape [num_detections, height, width]
     camera_motion: array with shape [12].
     camera_intrinsics: array with shape [3].
@@ -57,14 +58,19 @@ def dense_flow_from_motion(depth, motions, masks, camera_motion,
   P = np.stack([X, Y, Z], axis=2)
 
   for i in range(motions.shape[0]):
+    moving = motions[i, 15]
+    if moving < 0.5:
+      continue
     rot = np.reshape(motions[i, :9], [3, 3])
     trans = np.reshape(motions[i, 9:12], [3])
     pivot = np.reshape(motions[i, 12:15], [3])
     mask = np.expand_dims(masks[i, :, :], 2)
     P += mask * ((P - pivot).dot(rot.T) + pivot + trans - P)
 
+  moving_cam = camera_motion[12]
   rot_cam = np.reshape(camera_motion[:9], [3, 3])
-  trans_cam = np.reshape(camera_motion[9:], [-1])
+  trans_cam = np.reshape(camera_motion[9:12], [-1])
+  #if moving_cam > 0.5:
   P = P.dot(rot_cam.T) + trans_cam
 
   x_t, y_t = _3d_to_pixels(P, camera_intrinsics)
@@ -112,6 +118,11 @@ def _rotation_angle(mat):
   return np.arccos(np.clip((np.trace(mat, axis1=1, axis2=2) - 1) / 2, -1, 1))
 
 
+def _get_rotation_eye(rot):
+  single_eye = np.eye(3)
+  return np.tile(np.expand_dims(single_eye, 0), [rot.shape[0], 1, 1])
+
+
 def _motion_errors(pred, target):
   """
   Args:
@@ -127,6 +138,10 @@ def _motion_errors(pred, target):
   rot = np.reshape(pred[:, 0:9], [-1, 3, 3])
   trans = pred[:, 9:12]
   pivot = pred[:, 12:15]
+
+  moving = pred[:, 15:16] > 0.5
+  rot = np.where(np.expand_dims(moving, 2), rot, _get_rotation_eye(rot))
+  trans = np.where(moving, trans, np.zeros_like(trans))
 
   gt_rot = np.reshape(target[:, 0:9], [-1, 3, 3])
   gt_trans = target[:, 9:12]

@@ -79,9 +79,11 @@ with tf.Graph().as_default():
             print(gt_rot.shape)
             mean_rot_angle = np.mean(np.degrees(_rotation_angle(gt_rot)))
             mean_trans = np.mean(np.linalg.norm(gt_trans))
+            cam_moving = example_np['groundtruth_camera_motion'][-1]
 
-            print('image_id: {}, instances: {}, shape: {}, rot(deg): {}, trans: {}'
-                  .format(img_id_np, num_instances_np, image_np.shape, mean_rot_angle, mean_trans))
+            print('image_id: {}, instances: {}, shape: {}, rot(deg): {}, trans: {}, moving: {}'
+                  .format(img_id_np, num_instances_np, image_np.shape, mean_rot_angle, mean_trans,
+                          cam_moving))
 
             # overlay masks
             for i in range(gt_boxes_np.shape[0]):
@@ -94,6 +96,8 @@ with tf.Graph().as_default():
             for i in range(gt_boxes_np.shape[0]):
                 label = trainId2label[gt_classes_np[i]]
                 name = 'car' if gt_classes_np[i] == 1 else 'van'
+                if gt_motions_np[i, 15] < 0.5:
+                  name = name + '_static'
                 color = 'rgb({},{},{})'.format(*label.color)
                 pos = gt_boxes_np[i, :]
                 y0 = pos[0] * height
