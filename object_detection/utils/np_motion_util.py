@@ -143,6 +143,16 @@ def _motion_errors(pred, target, has_moving=True):
     moving = pred[:, 15:16] > 0.5
     rot = np.where(np.expand_dims(moving, 2), rot, _get_rotation_eye(rot))
     trans = np.where(moving, trans, np.zeros_like(trans))
+    gt_moving = target[:, 15:16] > 0.5
+    TP = np.sum(np.logical_and(gt_moving == 1, moving == 1))
+    FP = np.sum(np.logical_and(gt_moving == 0, moving == 1))
+    FN = np.sum(np.logical_and(gt_moving == 1, moving == 0))
+    moving_dict = {
+      'moving_precision': TP / (TP + FP) if np.asscalar(TP + FP) > 0 else 1,
+      'moving_recall': TP / (TP + FN) if np.asscalar(TP + FN) > 0 else 1
+    }
+  else:
+    moving_dict = {}
 
   gt_rot = np.reshape(target[:, 0:9], [-1, 3, 3])
   gt_trans = target[:, 9:12]
@@ -186,7 +196,9 @@ def _motion_errors(pred, target, has_moving=True):
       'mAveAngle': np.mean(_rotation_angle(rot)),
       'mAveTrans': np.mean(np.linalg.norm(trans, axis=1))}
 
-  return {k: np.asscalar(v) for (k, v) in error_dict.items()}
+  error_dict = {k: np.asscalar(v) for (k, v) in error_dict.items()}
+  error_dict.update(moving_dict)
+  return error_dict
 
 
 def evaluate_instance_motions(gt_boxes,
