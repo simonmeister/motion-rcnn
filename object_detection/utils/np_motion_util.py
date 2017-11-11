@@ -67,7 +67,7 @@ def dense_flow_from_motion(depth, motions, masks, camera_motion,
     mask = np.expand_dims(masks[i, :, :], 2)
     P += mask * ((P - pivot).dot(rot.T) + pivot + trans - P)
 
-  moving_cam = camera_motion[12]
+  #moving_cam = camera_motion[12]
   rot_cam = np.reshape(camera_motion[:9], [3, 3])
   trans_cam = np.reshape(camera_motion[9:12], [-1])
   #if moving_cam > 0.5:
@@ -123,7 +123,7 @@ def _get_rotation_eye(rot):
   return np.tile(np.expand_dims(single_eye, 0), [rot.shape[0], 1, 1])
 
 
-def _motion_errors(pred, target):
+def _motion_errors(pred, target, has_moving=True):
   """
   Args:
     pred: array of shape [num_predictions, 15] containing predicted
@@ -139,9 +139,10 @@ def _motion_errors(pred, target):
   trans = pred[:, 9:12]
   pivot = pred[:, 12:15]
 
-  moving = pred[:, 15:16] > 0.5
-  rot = np.where(np.expand_dims(moving, 2), rot, _get_rotation_eye(rot))
-  trans = np.where(moving, trans, np.zeros_like(trans))
+  if has_moving:
+    moving = pred[:, 15:16] > 0.5
+    rot = np.where(np.expand_dims(moving, 2), rot, _get_rotation_eye(rot))
+    trans = np.where(moving, trans, np.zeros_like(trans))
 
   gt_rot = np.reshape(target[:, 0:9], [-1, 3, 3])
   gt_trans = target[:, 9:12]
@@ -224,6 +225,7 @@ def evaluate_camera_motion(pred, target):
   mock_pivot = np.zeros([1, 3])
   error_dict = _motion_errors(
     np.concatenate([np.expand_dims(pred, 0), mock_pivot], axis=1),
-    np.concatenate([np.expand_dims(target, 0), mock_pivot], axis=1))
+    np.concatenate([np.expand_dims(target, 0), mock_pivot], axis=1),
+    has_moving=False)
   del error_dict['mPivot']
   return error_dict
