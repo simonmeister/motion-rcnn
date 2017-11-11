@@ -1418,8 +1418,10 @@ class FasterRCNNMetaArch(model.DetectionModel):
       motion_predictions_per_class_reshaped = tf.reshape(
           motion_predictions_per_class,
           [-1, max_detections, self.num_classes, num_motion_params])
-      motion_predictions = tf.boolean_mask(motion_predictions_per_class_reshaped,
-                                           classes_one_hot)
+      motion_predictions_reshaped = tf.boolean_mask(
+          motion_predictions_per_class_reshaped, classes_one_hot)
+      motion_predictions = tf.reshape(
+          motion_predictions_reshaped, [-1, max_detections, num_motion_params])
       detections['detection_motions'] = motion_predictions
 
     return detections
