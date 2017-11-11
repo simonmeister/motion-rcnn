@@ -62,7 +62,7 @@ def _extract_prediction_tensors(model,
     depth = input_dict.get(fields.InputDataFields.groundtruth_depth)
     next_depth = input_dict.get(fields.InputDataFields.groundtruth_next_depth)
     image_input.set_shape([1, None, None, 6])
-    if depth is not None and next_depth is not None: # TODO make controllable from proto entry: load_coords
+    if depth is not None and next_depth is not None:
       camera_intrinsics = input_dict[fields.InputDataFields.camera_intrinsics]
       coords = motion_util.get_3D_coords(
           tf.expand_dims(depth, 0), camera_intrinsics)
@@ -116,6 +116,8 @@ def _extract_prediction_tensors(model,
     camera_motion_with_matrices = (
         motion_util.postprocess_camera_motion(camera_motion))
     tensor_dict['camera_motion'] = camera_motion_with_matrices
+    tensor_dict['groundtruth_camera_motion'] = input_dict[
+        fields.InputDataFields.groundtruth_camera_motion]
 
   # load groundtruth fields into tensor_dict
   if not ignore_groundtruth:

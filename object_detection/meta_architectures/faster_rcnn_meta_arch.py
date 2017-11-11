@@ -136,7 +136,8 @@ class FasterRCNNFeatureExtractor(object):
     """Extracts first stage RPN features, to be overridden."""
     pass
 
-  def extract_box_classifier_features(self, proposal_feature_maps, scope):
+  def extract_box_classifier_features(self, proposal_feature_maps, scope,
+                                      reuse=None):
     """Extracts second stage box classifier features.
 
     Args:
@@ -150,7 +151,8 @@ class FasterRCNNFeatureExtractor(object):
         [batch_size * self.max_num_proposals, height, width, depth]
         representing box classifier features for each proposal.
     """
-    with tf.variable_scope(scope, values=[proposal_feature_maps]):
+    with tf.variable_scope(scope, values=[proposal_feature_maps],
+                           reuse=reuse):
       return self._extract_box_classifier_features(proposal_feature_maps, scope)
 
   @abstractmethod
@@ -897,16 +899,13 @@ class FasterRCNNMetaArch(model.DetectionModel):
             'num_detections': num_proposals
         }
     with tf.name_scope('SecondStagePostprocessor'):
-      mask_predictions = prediction_dict.get(box_predictor.MASK_PREDICTIONS)
-      motion_predictions = prediction_dict.get(box_predictor.MOTION_PREDICTIONS)
       detections_dict = self._postprocess_box_classifier(
           prediction_dict['refined_box_encodings'],
           prediction_dict['class_predictions_with_background'],
           prediction_dict['proposal_boxes'],
           prediction_dict['num_proposals'],
           image_shape,
-          mask_predictions=mask_predictions,
-          motion_predictions=motion_predictions)
+          prediction_dict['rpn_features_to_crop'])
 
       if 'camera_motion' in prediction_dict:
         detections_dict['camera_motion'] = prediction_dict['camera_motion']
@@ -1263,8 +1262,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
                                   proposal_boxes,
                                   num_proposals,
                                   image_shape,
-                                  mask_predictions=None,
-                                  motion_predictions=None,
+                                  rpn_features_to_crop,
                                   mask_threshold=0.5):
     """Converts predictions from the second stage box classifier to detections.
 
@@ -1282,12 +1280,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
         representing the number of proposals predicted for each image in
         the batch.
       image_shape: a 1-D tensor representing the input image shape.
-      mask_predictions: (optional) a 4-D tensor with shape
-        [total_num_padded_proposals, num_classes, mask_height, mask_width]
-        containing instance mask predictions.
-      motion_predictions: (optional) a 3-D tensor with shape
-        [total_num_padded_proposals, num_classes, num_motion_params]
-        containing instance motion predictions.
+      rpn_features_to_crop: A list of 4-D float32 tensors with shape
+        [batch_size, height, width, depth] representing image features to crop
+        using the refined boxes.
       mask_threshold: a scalar threshold determining which mask values are
         rounded to 0 or 1.
 
@@ -1321,42 +1316,112 @@ class FasterRCNNMetaArch(model.DetectionModel):
         [-1, self.max_num_proposals, self.num_classes])
     clip_window = tf.to_float(tf.stack([0, 0, image_shape[1], image_shape[2]]))
 
-    mask_predictions_batch = None
-    if mask_predictions is not None:
-      mask_height = mask_predictions.shape[2].value
-      mask_width = mask_predictions.shape[3].value
-      mask_predictions_batch = tf.reshape(
-          mask_predictions, [-1, self.max_num_proposals,
-                             self.num_classes, mask_height, mask_width])
-
-    motion_predictions_batch = None
-    if motion_predictions is not None:
-      num_motion_params = motion_predictions.shape[2].value
-      motion_predictions_batch = tf.reshape(
-          motion_predictions,
-          [-1, self.max_num_proposals, self.num_classes, num_motion_params])
-
-    (nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_masks, nmsed_motions,
+    (nmsed_boxes, nmsed_scores, nmsed_classes, _, _,
      num_detections) = self._second_stage_nms_fn(
          refined_decoded_boxes_batch,
          class_predictions_batch,
          clip_window=clip_window,
          change_coordinate_frame=True,
-         num_valid_boxes=num_proposals,
-         masks=mask_predictions_batch,
-         motions=motion_predictions_batch)
+         num_valid_boxes=num_proposals)
 
     detections = {'detection_boxes': nmsed_boxes,
                   'detection_scores': nmsed_scores,
                   'detection_classes': nmsed_classes,
                   'num_detections': tf.to_float(num_detections)}
-    if nmsed_masks is not None:
-      detections['detection_masks'] = nmsed_masks
-    if mask_predictions is not None:
+
+    detections.update(self._predict_third_stage(
+        rpn_features_to_crop,
+        nmsed_boxes,
+        nmsed_classes,
+        image_shape,
+        num_detections,
+        mask_threshold))
+
+    return detections
+
+  def _predict_third_stage(self,
+                           rpn_features_to_crop,
+                           refined_boxes_normalized,
+                           classes,
+                           image_shape,
+                           num_detections,
+                           mask_threshold=.5):
+    """Compute mask and motion branch on features extracted with refined
+    boxes (evaluation only).
+
+    Args:
+      rpn_features_to_crop: A list of 4-D float32 tensors with shape
+        [batch_size, height, width, depth] representing image features to crop
+        using the refined boxes.
+      refined_boxes_normalized: A [batch_size, max_detections, 4] float32 tensor
+        containing the refined boxes after non-max suppression.
+      classes: A [batch_size, max_detections] float32 tensor
+        containing the class for boxes.
+    Returns:
+      A dictionary containing:
+        `detection_masks`:
+          (optional) [batch, max_detections, mask_height, mask_width]
+        `detection_motions`:
+          (optional) [batch, max_detections, num_motion_params]
+    """
+    detections = {}
+
+    absolute_refined_boxes_reshaped = box_list_ops.to_absolute_coordinates(
+        box_list.BoxList(tf.reshape(refined_boxes_normalized, [-1, 4])),
+        image_shape[1], image_shape[2]).get()
+    absolute_refined_boxes = tf.reshape(
+        absolute_refined_boxes_reshaped,
+        [-1, refined_boxes_normalized.shape[1].value, 4])
+
+    flattened_refined_feature_maps = (
+        self._compute_second_stage_input_feature_maps(
+            rpn_features_to_crop,
+            refined_boxes_normalized,
+            absolute_refined_boxes))
+
+    refined_box_classifier_features = (
+        self._feature_extractor.extract_box_classifier_features(
+            flattened_refined_feature_maps,
+            scope=self.second_stage_feature_extractor_scope,
+            reuse=True))
+    refined_box_predictions = self._mask_rcnn_box_predictor.predict(
+        refined_box_classifier_features,
+        num_predictions_per_location=1,
+        scope=self.second_stage_box_predictor_scope,
+        reuse=True)
+
+    classes_one_hot = tf.cast(
+        tf.one_hot(tf.to_int32(classes), depth=self._num_classes),
+        dtype=tf.bool)
+    max_detections = tf.shape(classes)[1]
+
+    if box_predictor.MASK_PREDICTIONS in refined_box_predictions:
+      mask_predictions_per_class = tf.squeeze(
+          refined_box_predictions[box_predictor.MASK_PREDICTIONS], axis=1)
+      mask_height = mask_predictions_per_class.shape[2].value
+      mask_width = mask_predictions_per_class.shape[3].value
+      mask_predictions_per_class_flat = tf.reshape(
+          mask_predictions_per_class, [-1, max_detections,
+                             self.num_classes, mask_height * mask_width])
+      mask_predictions_flat = tf.boolean_mask(
+          mask_predictions_per_class_flat, classes_one_hot)
+      mask_predictions = tf.reshape(
+          mask_predictions_flat, [-1, max_detections,
+                                  mask_height, mask_width])
       detections['detection_masks'] = tf.to_float(
-          tf.greater_equal(detections['detection_masks'], mask_threshold))
-    if nmsed_motions is not None:
-      detections['detection_motions'] = nmsed_motions
+          tf.greater_equal(mask_predictions, mask_threshold))
+
+    if box_predictor.MOTION_PREDICTIONS in refined_box_predictions:
+      motion_predictions_per_class = tf.squeeze(
+          refined_box_predictions[box_predictor.MOTION_PREDICTIONS], axis=1)
+      num_motion_params = motion_predictions_per_class.shape[2].value
+      motion_predictions_per_class_reshaped = tf.reshape(
+          motion_predictions_per_class,
+          [-1, max_detections, self.num_classes, num_motion_params])
+      motion_predictions = tf.boolean_mask(motion_predictions_per_class_reshaped,
+                                           classes_one_hot)
+      detections['detection_motions'] = motion_predictions
+
     return detections
 
   def _batch_decode_boxes(self, box_encodings, anchor_boxes):
@@ -1635,7 +1700,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
         [batch_size * self.max_num_proposals, -1])
 
       def _mask_predictions_by_class_targets(predictions_for_all_classes,
-                                              out_shape_last_dim):
+                                             out_shape_last_dim):
         # We only predict refined location encodings for the non background
         # classes, but we now pad it to make it compatible with the class
         # predictions

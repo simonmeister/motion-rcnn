@@ -88,7 +88,9 @@ class BoxPredictor(object):
           [batch_size, num_anchors, num_classes + 1] representing the class
           predictions for the proposals.
     """
-    with tf.variable_scope(scope):
+    with tf.variable_scope(scope, reuse=params.get('reuse', None)):
+      if 'reuse' in params:
+        del params['reuse']
       return self._predict(image_features, num_predictions_per_location,
                            **params)
 
@@ -367,7 +369,7 @@ class MaskRCNNBoxPredictor(BoxPredictor):
           predictions for the proposals.
       If predict_instance_masks is True the dictionary also contains:
         mask_predictions: A float tensor of shape
-          [batch_size, 1, num_classes, image_height, image_width]
+          [batch_size, 1, num_classes, mask_height, mask_width]
       If predict_keypoints is True the dictionary also contains:
         keypoints: [batch_size, 1, num_keypoints, 2]
       If predict_instance_motions is True the dictionary also contains:
