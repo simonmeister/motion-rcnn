@@ -13,22 +13,22 @@ from object_detection.utils import flow_util
 
 
 def _pixels_to_3d(x, y, d, camera_intrinsics):
-    f, x0, y0 = camera_intrinsics
-    factor = d / f
-    X = (x - x0) * factor
-    Y = (y - y0) * factor
-    Z = d
-    return X, Y, Z
+  f, x0, y0 = camera_intrinsics
+  factor = d / f
+  X = (x - x0) * factor
+  Y = (y - y0) * factor
+  Z = d
+  return X, Y, Z
 
 
 def _3d_to_pixels(points, camera_intrinsics):
-    f, x0, y0 = camera_intrinsics
-    X = points[:, :, 0]
-    Y = points[:, :, 1]
-    Z = points[:, :, 2]
-    x = f * X / Z + x0
-    y = f * Y / Z + y0
-    return x, y
+  f, x0, y0 = camera_intrinsics
+  X = points[:, :, 0]
+  Y = points[:, :, 1]
+  Z = points[:, :, 2]
+  x = f * X / Z + x0
+  y = f * Y / Z + y0
+  return x, y
 
 
 def dense_flow_from_motion(depth, motions, masks, camera_motion,
