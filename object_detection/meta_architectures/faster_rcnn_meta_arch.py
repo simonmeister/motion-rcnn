@@ -1787,8 +1787,6 @@ class FasterRCNNMetaArch(model.DetectionModel):
 
         reshaped_mask_predictions = _mask_predictions_by_class_targets(
             mask_predictions_flat, mask_dim)
-        #mask_loss_normalizer = normalizer * tf.cast(
-        #    mask_height * mask_width, tf.float32)
 
         second_stage_mask_losses = self._second_stage_mask_loss(
             reshaped_mask_predictions,
