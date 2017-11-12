@@ -197,7 +197,9 @@ class DetectionModel(object):
                           groundtruth_masks_list=None,
                           groundtruth_keypoints_list=None,
                           groundtruth_motions_list=None,
-                          groundtruth_camera_motion_list=None):
+                          groundtruth_camera_motion_list=None,
+                          groundtruth_depth_list=None,
+                          groundtruth_flow_list=None):
     """Provide groundtruth tensors.
 
     Args:
@@ -223,6 +225,12 @@ class DetectionModel(object):
         for each object.  If None, no motions are provided.
       groundtruth_camera_motion_list: a list of a 1-D tf.float32 tensor
         of shape [12]. If None, no camera motion is provided.
+      groundtruth_depth_list: a list of a 2-D tf.float32 tensor
+        of shape [height_in, width_in, 1]. If None, no ground truth depth is
+        provided.
+      groundtruth_flow_list: a list of a 2-D tf.float32 tensor
+        of shape [height_in, width_in, 2]. If None, no ground truth flow is
+        provided.
     """
     self._groundtruth_lists[fields.BoxListFields.boxes] = groundtruth_boxes_list
     self._groundtruth_lists[
@@ -238,6 +246,8 @@ class DetectionModel(object):
           fields.BoxListFields.motions] = groundtruth_motions_list
 
     self._groundtruth_camera_motion_list = groundtruth_camera_motion_list
+    self._groundtruth_depth_list = groundtruth_depth_list
+    self._groundtruth_flow_list = groundtruth_flow_list
 
 
   @abstractmethod

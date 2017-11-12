@@ -133,7 +133,10 @@ def _get_inputs(input_queue, num_classes):
     masks_gt = read_data.get(fields.InputDataFields.groundtruth_instance_masks)
     motions_gt = read_data.get(fields.InputDataFields.groundtruth_instance_motions)
     camera_motion_gt = read_data.get(fields.InputDataFields.groundtruth_camera_motion)
-    return image_input, location_gt, classes_gt, masks_gt, motions_gt, camera_motion_gt
+    depth_gt = read_data.get(fields.InputDataFields.groundtruth_depth)
+    flow_gt = read_data.get(fields.InputDataFields.groundtruth_flow)
+    return (image_input, location_gt, classes_gt, masks_gt, motions_gt,
+            camera_motion_gt, depth_gt, flow_gt)
   return zip(*map(extract_images_and_targets, read_data_list))
 
 
@@ -147,7 +150,9 @@ def _create_losses(input_queue, create_model_fn):
   detection_model = create_model_fn()
   (images, groundtruth_boxes_list, groundtruth_classes_list,
    groundtruth_masks_list, groundtruth_motions_list,
-   groundtruth_camera_motion_list
+   groundtruth_camera_motion_list,
+   groundtruth_depth_list,
+   groundtruth_flow_list
   ) = _get_inputs(input_queue, detection_model.num_classes)
   images = [detection_model.preprocess(image) for image in images]
   images = tf.concat(images, 0)
@@ -161,7 +166,9 @@ def _create_losses(input_queue, create_model_fn):
       groundtruth_classes_list,
       groundtruth_masks_list,
       groundtruth_motions_list=groundtruth_motions_list,
-      groundtruth_camera_motion_list=groundtruth_camera_motion_list)
+      groundtruth_camera_motion_list=groundtruth_camera_motion_list,
+      groundtruth_depth_list=groundtruth_depth_list,
+      groundtruth_flow_list=groundtruth_flow_list)
   prediction_dict = detection_model.predict(images)
 
   losses_dict = detection_model.loss(prediction_dict)

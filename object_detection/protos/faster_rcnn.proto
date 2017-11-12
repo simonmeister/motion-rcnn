@@ -126,7 +126,7 @@ message FasterRcnn {
   optional HardExampleMiner hard_example_miner = 29;
 
 
-  // Global motion prediction parameters
+  // Camera motion prediction parameters
 
   optional bool first_stage_predict_camera_motion = 30 [default=false];
 
@@ -134,6 +134,8 @@ message FasterRcnn {
   optional float first_stage_camera_motion_loss_weight = 31 [default=1.0];
 
   optional Hyperparams first_stage_camera_motion_fc_hyperparams = 32;
+
+  optional bool second_stage_motion_loss_from_flow = 33 [default=false];
 }
 
 
