@@ -78,45 +78,53 @@ def _l1_loss(diff, reduce_dims=[1]):
 def _motion_losses(pred, target, has_moving=True, has_pivot=True):
   """
   Args:
-    pred: tensor of shape [num_predictions, 9] containing predicted
-      angle sines, translation and pivot
-    target: tensor of shape [num_predictions, 15] containing
-      target rotation matrix (flat), translation and pivot.
+    pred: tensor of shape [num_predictions, num_pred] containing predicted
+      rotation matrix, translation, pivot (optional) and moving logits
+      (optional).
+    target: tensor of shape [num_predictions, num_gt] containing
+      target rotation matrix (flat), translation, pivot (optional)
+      and moving flag.
   Returns:
     losses: three-tuple of tensors of shape [num_predictions] representing the
       rotation, translation and pivot loss for each instance
   """
-  rot = tf.reshape(pred[:, 0:9], [-1, 3, 3])
-  trans = pred[:, 9:12]
+  num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 12
+  num_gt = 1 + int(has_pivot) * 3 + 12
+  assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
+                                name='_motion_loss_assert_pred')
+  assert_target = tf.assert_equal(tf.shape(target)[1], num_gt,
+                                  name='_motion_loss_assert_target')
+  with tf.control_dependencies([assert_pred, assert_target]):
+    rot = tf.reshape(pred[:, 0:9], [-1, 3, 3])
+    trans = pred[:, 9:12]
 
-  gt_rot = tf.reshape(target[:, 0:9], [-1, 3, 3])
-  gt_trans = target[:, 9:12]
+    gt_rot = tf.reshape(target[:, 0:9], [-1, 3, 3])
+    gt_trans = target[:, 9:12]
 
-  d_rot = tf.reshape(gt_rot - rot, [-1, 9])
-  d_trans = gt_trans - trans
+    d_rot = tf.reshape(gt_rot - rot, [-1, 9])
+    d_trans = gt_trans - trans
 
-  l_angle = _smoothl1_loss(d_rot)
-  l_trans = _smoothl1_loss(d_trans)
+    l_angle = _smoothl1_loss(d_rot)
+    l_trans = _smoothl1_loss(d_trans)
 
-  if has_pivot:
-    pivot = pred[:, 12:15]
-    gt_pivot = target[:, 12:15]
-    d_pivot = gt_pivot - pivot
-    l_pivot = _smoothl1_loss(d_pivot)
-  else:
-    l_pivot = None
+    if has_pivot:
+      pivot = pred[:, 12:15]
+      gt_pivot = target[:, 12:15]
+      d_pivot = gt_pivot - pivot
+      l_pivot = _smoothl1_loss(d_pivot)
+    else:
+      l_pivot = None
 
-  if has_moving:
-    moving = pred[:, 15:17]
-    gt_moving = target[:, 15]
-    l_moving = tf.nn.softmax_cross_entropy_with_logits(
-        labels=tf.one_hot(tf.cast(gt_moving, dtype=tf.int32),
-                          depth=2, dtype=tf.float32),
-        logits=moving)
-  else:
-    l_moving = None,
-    gt_moving = None
-
+    if has_moving:
+      moving = pred[:, 15:17]
+      gt_moving = target[:, 15]
+      l_moving = tf.nn.softmax_cross_entropy_with_logits(
+          labels=tf.one_hot(tf.cast(gt_moving, dtype=tf.int32),
+                            depth=2, dtype=tf.float32),
+          logits=moving)
+    else:
+      l_moving = None,
+      gt_moving = None
   return l_angle, l_trans, l_pivot, l_moving, gt_moving
 
 
@@ -145,31 +153,41 @@ def postprocess_motions(pred, has_pivot=True, has_moving=True,
   Restrict range of angle sines to [-1, 1].
   If keep_logits=False, convert moving logits to scores.
 
+  By convention,
+  * the first 3 entries (along dim 1) of pred are the 3 angle sines,
+  * the next 3 entries correspond to the translation
+  * (optional) next, there are 3 entries for the pivot if has_pivot=True
+  * (optional) next, 2 entries (logits for not-moving and moving class)
+    if has_moving=True.
+
   Args:
-    pred: tensor of shape [num_boxes, num_params],
-      where num_params is 6 + 2 * has_moving + 3 * has_pivot.
+    pred: tensor of shape [num_boxes, num_pred].
 
   Returns:
-    processed: tensor of shape [num_boxes, num_params_processed],
-      where num_params_processed = num_params + 6.
+    processed: tensor of shape [num_boxes, num_out],
+      where num_out = num_pred + 3.
   """
-  angle_sines = clip_to_open_interval(pred[:, 0:3])
-  rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
-  res = tf.reshape(rot, [-1, 9])
-  trans = pred[:, 3:6]
-  res = tf.concat([res, trans], axis=1)
-  if has_pivot:
-    pivot = pred[:, 6:9]
-    res = tf.concat([res, pivot], axis=1)
-    moving_start = 9
-  else:
-    moving_start = 6
-  if has_moving:
-    moving = pred[:, moving_start:moving_start+2]
-    if not keep_logits:
-      moving_score = tf.nn.softmax(moving)[:, 1:2]
-      moving = tf.cast(moving_score > 0.5, dtype=tf.float32)
-    res = tf.concat([res, moving], axis=1)
+  num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 6
+  assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
+                                name='_postprocess_motions_assert_pred')
+  with tf.control_dependencies([assert_pred]):
+    angle_sines = clip_to_open_interval(pred[:, 0:3])
+    rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
+    res = tf.reshape(rot, [-1, 9])
+    trans = pred[:, 3:6]
+    res = tf.concat([res, trans], axis=1)
+    if has_pivot:
+      pivot = pred[:, 6:9]
+      res = tf.concat([res, pivot], axis=1)
+      moving_start = 9
+    else:
+      moving_start = 6
+    if has_moving:
+      moving = pred[:, moving_start:moving_start+2]
+      if not keep_logits:
+        moving_score = tf.nn.softmax(moving)[:, 1:2]
+        moving = tf.cast(moving_score > 0.5, dtype=tf.float32)
+      res = tf.concat([res, moving], axis=1)
   return res
 
 
