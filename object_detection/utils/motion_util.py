@@ -204,8 +204,8 @@ def postprocess_camera_motion(pred):
 def motion_loss(pred, target, weights):
   """
   Args:
-    pred: tensor of shape [batch_size, num_anchors, 9]
-    target: tensor of shape [batch_size, num_anchors, 15]
+    pred: tensor of shape [batch_size, num_anchors, 11]
+    target: tensor of shape [batch_size, num_anchors, 16]
     weights: tensor of shape [batch_size, num_anchors]
   Returns:
     loss: a tensor of shape [batch_size, num_anchors]
