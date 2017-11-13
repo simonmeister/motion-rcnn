@@ -76,7 +76,7 @@ message MaskRCNNBoxPredictor {
   // The number of consecutive conv2d ops
   // applied to the image_features in the mask prediction branch
   // before the final upsampling.
-  optional int32 num_layers_before_mask_prediction = 8 [default = 0];
+  optional int32 num_layers_before_mask_prediction = 8 [default = 1];
 
   // Whether to predict keypoints inside detection boxes.
   optional bool predict_keypoints = 9 [default = false];

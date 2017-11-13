@@ -142,19 +142,7 @@ class FasterRCNNResnetV1FeatureExtractor(
     return features, features
 
   def _extract_camera_features(self, rpn_bottleneck, scope):
-    features = self._extract_box_classifier_features(rpn_bottleneck, scope)
-    features = slim.conv2d(
-        features,
-        1024,
-        kernel_size=[1, 1],
-        activation_fn=tf.nn.relu)
-    features = slim.conv2d(
-        features,
-        1024,
-        kernel_size=[3, 3],
-        stride=2,
-        activation_fn=tf.nn.relu)
-    return features
+    return self._extract_box_classifier_features(rpn_bottleneck, scope)
 
   def _extract_box_classifier_features(self, proposal_feature_maps, scope):
     """Extracts second stage box classifier features.

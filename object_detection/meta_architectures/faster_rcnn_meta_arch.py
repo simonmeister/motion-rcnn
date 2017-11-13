@@ -574,13 +574,24 @@ class FasterRCNNMetaArch(model.DetectionModel):
   def _predict_camera_motion(self, rpn_bottleneck_features):
     camera_features = self._feature_extractor._extract_camera_features(
         rpn_bottleneck_features, scope='CameraFeatures')
-    pooled_features = tf.reduce_mean(camera_features, [1, 2], keep_dims=True)
     with slim.arg_scope(self._first_stage_camera_motion_arg_scope):
-      cam_features = slim.flatten(pooled_features)
+      camera_features_conv = slim.conv2d(
+          camera_features,
+          512,
+          kernel_size=[1, 1],
+          activation_fn=tf.nn.relu)
+      camera_features_resized = tf.image.resize_bilinear(
+          camera_features_conv, [7, 7])
+      camera_features_flat = slim.flatten(camera_features_resized)
       for _ in range(2):
-        cam_features = slim.fully_connected(cam_features, 1024)
+        camera_features_flat = slim.fully_connected(
+            camera_features_flat, 1024)
+        camera_features_flat = slim.dropout(
+            camera_features_flat,
+            keep_prob=0.5,
+            is_training=self._is_training)
       camera_motion = slim.fully_connected(
-          cam_features,
+          camera_features_flat,
           6, #self._num_camera_motion_params, # TODO
           weights_initializer=tf.truncated_normal_initializer(0.0, 0.0001), # TODO
           activation_fn=None,
@@ -1322,7 +1333,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
 
     (nmsed_boxes, nmsed_scores, nmsed_classes, _, _,
      num_detections) = self._second_stage_nms_fn(
-         refined_decoded_boxes_batch,
+         tf.nn.softmax(refined_decoded_boxes_batch), # TODO verify softmax doesn't break NMS
          class_predictions_batch,
          clip_window=clip_window,
          change_coordinate_frame=True,
@@ -1413,7 +1424,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
           mask_predictions_flat, [-1, max_detections,
                                   mask_height, mask_width])
       detections['detection_masks'] = tf.to_float(
-          tf.greater_equal(mask_predictions, mask_threshold))
+          tf.greater_equal(tf.sigmoid(mask_predictions), mask_threshold))
 
     if box_predictor.MOTION_PREDICTIONS in refined_box_predictions:
       motion_predictions_per_class = tf.squeeze(
@@ -1534,7 +1545,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     loss_dict = {}
     if predicted_camera_motion is not None:
       if (self._second_stage_motion_loss_from_flow
-          and self._first_stage_camera_motion_loss_weight = 0.0):
+          and self._first_stage_camera_motion_loss_weight == 0.0):
         # Camera supervision disabled for complete flow supervision
         # of motion
         return {}
@@ -1674,7 +1685,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
         class targets with the 0th index assumed to map to the background class.
       mask_predictions: (optional) a 4-D tensor with shape
         [total_num_proposals, num_classes, mask_height, mask_width]
-        containing instance mask predictions.
+        containing instance mask predictions (logits).
       groundtruth_masks_list: (optional) a list of 3-D tf.bool tensors of
         shape [num_boxes, height_in, width_in] containing instance
         masks with values in {0, 1}. Must be provided if mask_predictions is
@@ -1834,10 +1845,11 @@ class FasterRCNNMetaArch(model.DetectionModel):
           groundtruth_depth = tf.stack(self._groundtruth_depth_list, axis=0)
           groundtruth_flow = tf.stack(self._groundtruth_flow_list, axis=0)
 
+          masks = tf.to_float(
+              tf.greater_equal(tf.sigmoid(reshaped_mask_predictions), .5))
           second_stage_motion_losses = motion_util.flow_motion_loss(
               proposal_boxes,
-              tf.reshape(reshaped_mask_predictions,
-                         [batch_size, -1, mask_height, mask_width]),
+              masks,
               reshaped_motion_predictions,
               camera_motion,
               groundtruth_depth,

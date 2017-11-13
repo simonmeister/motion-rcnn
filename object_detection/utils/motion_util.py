@@ -188,7 +188,7 @@ def postprocess_motions(pred, has_pivot=True, has_moving=True,
     res = tf.concat([res, moving], axis=1)
   return res
 
-def postprocess_detection_motions(pred, testing=False, has_moving):
+def postprocess_detection_motions(pred, testing=False, has_moving=True):
   """Postprocess instance motions."""
   return postprocess_motions(pred, has_pivot=True, has_moving=has_moving,
                              keep_logits=not testing)

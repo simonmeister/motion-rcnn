@@ -137,18 +137,7 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
     return [(x, x) for x in [64, 32, 16, 8, 4]]
 
   def _extract_camera_features(self, rpn_bottleneck, scope):
-    features = slim.conv2d(
-        rpn_bottleneck,
-        1024,
-        kernel_size=[1, 1],
-        activation_fn=tf.nn.relu)
-    features = slim.conv2d(
-        features,
-        1024,
-        kernel_size=[3, 3],
-        stride=2,
-        activation_fn=tf.nn.relu)
-    return features
+    return rpn_bottleneck
 
   def _extract_proposal_features(self, preprocessed_inputs, scope):
     """Extracts first stage RPN features.

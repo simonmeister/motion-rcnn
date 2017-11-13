@@ -31,6 +31,7 @@ import tensorflow as tf
 from object_detection.utils import ops
 from object_detection.utils import shape_utils
 from object_detection.utils import static_shape
+from nets import resnet
 
 slim = tf.contrib.slim
 
@@ -390,13 +391,11 @@ class MaskRCNNBoxPredictor(BoxPredictor):
       for _ in range(2):
         flattened_image_features = slim.fully_connected(
             flattened_image_features, 1024)
-        if self._use_dropout:
-          flattened_image_features = slim.dropout(
-              flattened_image_features,
-              keep_prob=self._dropout_keep_prob,
-              is_training=self._is_training)
+        flattened_image_features = slim.dropout(
+            flattened_image_features,
+            keep_prob=0.5,
+            is_training=self._is_training)
     else:
-      # TODO did they miss the 2048 fully connected layer?
       spatial_averaged_image_features = tf.reduce_mean(image_features, [1, 2],
                                                        keep_dims=True,
                                                        name='AvgPool')
@@ -428,20 +427,22 @@ class MaskRCNNBoxPredictor(BoxPredictor):
         CLASS_PREDICTIONS_WITH_BACKGROUND: class_predictions_with_background
     }
 
+    with slim.arg_scope(self._conv_hyperparams):
+      mask_features = image_features
+      for _ in range(self._num_layers_before_mask_prediction):
+        mask_features = slim.conv2d(mask_features,
+                                    num_outputs=self._mask_prediction_conv_depth,
+                                    kernel_size=[3, 3],
+                                    stride=1)
+
     if self._predict_instance_masks:
       with slim.arg_scope(self._conv_hyperparams):
-        mask_features = image_features
-        for _ in range(self._num_layers_before_mask_prediction):
-          mask_features = slim.conv2d(mask_features,
-                                      num_outputs=self._mask_prediction_conv_depth,
-                                      kernel_size=[3, 3],
-                                      stride=1)
-        upsampled_features = slim.conv2d_transpose(
+        upsampled_mask_features = slim.conv2d_transpose(
             mask_features,
             num_outputs=self._mask_prediction_conv_depth,
             kernel_size=[2, 2],
             stride=2)
-        mask_predictions = slim.conv2d(upsampled_features,
+        mask_predictions = slim.conv2d(upsampled_mask_features,
                                        num_outputs=self.num_classes,
                                        activation_fn=None,
                                        kernel_size=[1, 1])
@@ -453,9 +454,13 @@ class MaskRCNNBoxPredictor(BoxPredictor):
 
     if self._predict_instance_motions:
       with slim.arg_scope(self._fc_hyperparams):
-        motion_features = flattened_image_features
+        motion_features = slim.flatten(mask_features)
         for _ in range(2):
           motion_features = slim.fully_connected(motion_features, 1024)
+          motion_features = slim.dropout(
+              motion_features,
+              keep_prob=0.5,
+              is_training=self._is_training)
         motion_predictions = slim.fully_connected(
             motion_features,
             self._num_classes * self._num_motion_params,
