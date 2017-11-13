@@ -453,6 +453,7 @@ class MaskRCNNBoxPredictor(BoxPredictor):
 
     if self._predict_instance_motions:
       with slim.arg_scope(self._fc_hyperparams):
+        #motion_features = flattened_image_features
         motion_features = slim.flatten(mask_features)
         for _ in range(2):
           motion_features = slim.fully_connected(motion_features, 1024)

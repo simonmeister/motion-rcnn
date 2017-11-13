@@ -86,7 +86,6 @@ def _motion_losses(pred, target, has_moving=True, has_pivot=True):
     losses: three-tuple of tensors of shape [num_predictions] representing the
       rotation, translation and pivot loss for each instance
   """
-  pred = postprocess_detection_motions(pred)
   rot = tf.reshape(pred[:, 0:9], [-1, 3, 3])
   trans = pred[:, 9:12]
 

@@ -580,6 +580,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
           512,
           kernel_size=[1, 1],
           activation_fn=tf.nn.relu)
+      #camera_features_resized = tf.reduce_mean(camera_features, [1, 2], keep_dims=True)
       camera_features_resized = tf.image.resize_bilinear(
           camera_features_conv, [7, 7])
       camera_features_flat = slim.flatten(camera_features_resized)
@@ -1333,7 +1334,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
 
     (nmsed_boxes, nmsed_scores, nmsed_classes, _, _,
      num_detections) = self._second_stage_nms_fn(
-         tf.nn.softmax(refined_decoded_boxes_batch), # TODO verify softmax doesn't break NMS
+         refined_decoded_boxes_batch, # TODO verify softmax doesn't break NMS
          class_predictions_batch,
          clip_window=clip_window,
          change_coordinate_frame=True,
@@ -1544,11 +1545,11 @@ class FasterRCNNMetaArch(model.DetectionModel):
                    groundtruth_camera_motion_list):
     loss_dict = {}
     if predicted_camera_motion is not None:
-      if (self._second_stage_motion_loss_from_flow
-          and self._first_stage_camera_motion_loss_weight == 0.0):
-        # Camera supervision disabled for complete flow supervision
-        # of motion
-        return {}
+      #if (self._second_stage_motion_loss_from_flow
+      #    and self._first_stage_camera_motion_loss_weight == 0.0):
+      #  # Camera supervision disabled for complete flow supervision
+      #  # of motion
+      #  return {}
       if groundtruth_camera_motion_list is None:
         raise RuntimeError("No ground truth camera motion provided.")
       groundtruth_camera_motion = tf.stack(
