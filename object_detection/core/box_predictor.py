@@ -31,7 +31,6 @@ import tensorflow as tf
 from object_detection.utils import ops
 from object_detection.utils import shape_utils
 from object_detection.utils import static_shape
-from nets import resnet
 
 slim = tf.contrib.slim
 
