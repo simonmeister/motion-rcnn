@@ -35,15 +35,59 @@ def resnet_v1_50(inputs,
                  output_stride=None,
                  spatial_squeeze=True,
                  reuse=None,
-                 scope='resnet_v1_50'):
+                 scope='resnet_v1_50',
+                 initial_conv_name='conv1'):
   """Unlike the slim default we use a stride of 2 in the last block."""
   blocks = [
       resnet_v1_block('block1', base_depth=64, num_units=3, stride=1),
       resnet_v1_block('block2', base_depth=128, num_units=4, stride=2),
       resnet_v1_block('block3', base_depth=256, num_units=6, stride=2),
-      resnet_v1_block('block4', base_depth=512, num_units=3, stride=2),]
+      resnet_v1_block('block4', base_depth=512, num_units=3, stride=2)]
   return resnet_v1.resnet_v1(
       inputs, blocks, num_classes, is_training,
       global_pool=global_pool, output_stride=output_stride,
       include_root_block=True, spatial_squeeze=spatial_squeeze,
-      reuse=reuse, scope=scope)
+      reuse=reuse, scope=scope, initial_conv_name=initial_conv_name)
+
+def resnet_v1_50_C4(inputs,
+                 num_classes=None,
+                 is_training=True,
+                 global_pool=True,
+                 output_stride=None,
+                 spatial_squeeze=True,
+                 reuse=None,
+                 scope='resnet_v1_50',
+                 initial_conv_name='conv1'):
+  """Unlike the slim default we use a stride of 2 in the last block."""
+  blocks = [
+      resnet_v1_block('block1', base_depth=64, num_units=3, stride=1),
+      resnet_v1_block('block2', base_depth=128, num_units=4, stride=2),
+      resnet_v1_block('block3', base_depth=256, num_units=6, stride=2)]
+  return resnet_v1.resnet_v1(
+      inputs, blocks, num_classes, is_training,
+      global_pool=global_pool, output_stride=output_stride,
+      include_root_block=True, spatial_squeeze=spatial_squeeze,
+      reuse=reuse, scope=scope, initial_conv_name=initial_conv_name)
+
+
+def resnet_v1_50_C6(inputs,
+                 num_classes=None,
+                 is_training=True,
+                 global_pool=True,
+                 output_stride=None,
+                 spatial_squeeze=True,
+                 reuse=None,
+                 scope='resnet_v1_50',
+                 initial_conv_name='conv1'):
+  """Unlike the slim default we use a stride of 2 in the last block."""
+  blocks = [
+      resnet_v1_block('block1', base_depth=64, num_units=3, stride=1),
+      resnet_v1_block('block2', base_depth=128, num_units=4, stride=2),
+      resnet_v1_block('block3', base_depth=256, num_units=6, stride=2),
+      resnet_v1_block('block4', base_depth=512, num_units=3, stride=2),
+      resnet_v1_block('block5', base_depth=512, num_units=3, stride=2)]
+  return resnet_v1.resnet_v1(
+      inputs, blocks, num_classes, is_training,
+      global_pool=global_pool, output_stride=output_stride,
+      include_root_block=True, spatial_squeeze=spatial_squeeze,
+      reuse=reuse, scope=scope, initial_conv_name=initial_conv_name)

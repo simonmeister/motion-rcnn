@@ -27,9 +27,8 @@ same preprocessing, batch norm scaling, etc.
 import tensorflow as tf
 
 from object_detection.meta_architectures import faster_rcnn_meta_arch
-from object_detection.models.resnet_v1_util import resnet_v1_50
+from object_detection.models.resnet_v1_util import resnet_v1_50_C4, resnet_v1_block
 from nets import resnet_utils
-from nets import resnet_v1
 
 slim = tf.contrib.slim
 
@@ -143,9 +142,20 @@ class FasterRCNNResnetV1FeatureExtractor(
     return features, features
 
   def _extract_camera_features(self, rpn_bottleneck, scope):
-    return self._extract_box_classifier_features(rpn_bottleneck, scope, stride=2)
+    with tf.variable_scope(self._architecture, reuse=self._reuse_weights):
+      with slim.arg_scope(
+          resnet_utils.resnet_arg_scope(
+              batch_norm_epsilon=1e-5,
+              batch_norm_scale=True,
+              weight_decay=self._weight_decay)):
+        with slim.arg_scope([slim.batch_norm], is_training=False):
+          blocks = [resnet_v1_block('block4', base_depth=512, num_units=3, stride=2),
+                    resnet_v1_block('block5', base_depth=512, num_units=2, stride=2)]
+          camera_features = resnet_utils.stack_blocks_dense(
+              rpn_bottleneck, blocks)
+    return camera_features
 
-  def _extract_box_classifier_features(self, proposal_feature_maps, scope, stride=1):
+  def _extract_box_classifier_features(self, proposal_feature_maps, scope):
     """Extracts second stage box classifier features.
 
     Args:
@@ -166,13 +176,7 @@ class FasterRCNNResnetV1FeatureExtractor(
               batch_norm_scale=True,
               weight_decay=self._weight_decay)):
         with slim.arg_scope([slim.batch_norm], is_training=False):
-          blocks = [
-              resnet_utils.Block('block4', resnet_v1.bottleneck, [{
-                  'depth': 2048,
-                  'depth_bottleneck': 512,
-                  'stride': stride
-              }] * 3)
-          ]
+          blocks = [resnet_v1_block('block4', base_depth=512, num_units=3, stride=1)]
           proposal_classifier_features = resnet_utils.stack_blocks_dense(
               proposal_feature_maps, blocks)
     return proposal_classifier_features
@@ -199,55 +203,5 @@ class FasterRCNNResnet50FeatureExtractor(FasterRCNNResnetV1FeatureExtractor):
         or if `architecture` is not supported.
     """
     super(FasterRCNNResnet50FeatureExtractor, self).__init__(
-        'resnet_v1_50', resnet_v1.resnet_v1_50, is_training,
-        first_stage_features_stride, reuse_weights, weight_decay)
-
-
-class FasterRCNNResnet101FeatureExtractor(FasterRCNNResnetV1FeatureExtractor):
-  """Faster R-CNN Resnet 101 feature extractor implementation."""
-
-  def __init__(self,
-               is_training,
-               first_stage_features_stride,
-               reuse_weights=None,
-               weight_decay=0.0):
-    """Constructor.
-
-    Args:
-      is_training: See base class.
-      first_stage_features_stride: See base class.
-      reuse_weights: See base class.
-      weight_decay: See base class.
-
-    Raises:
-      ValueError: If `first_stage_features_stride` is not 8 or 16,
-        or if `architecture` is not supported.
-    """
-    super(FasterRCNNResnet101FeatureExtractor, self).__init__(
-        'resnet_v1_101', resnet_v1.resnet_v1_101, is_training,
-        first_stage_features_stride, reuse_weights, weight_decay)
-
-
-class FasterRCNNResnet152FeatureExtractor(FasterRCNNResnetV1FeatureExtractor):
-  """Faster R-CNN Resnet 152 feature extractor implementation."""
-
-  def __init__(self,
-               is_training,
-               first_stage_features_stride,
-               reuse_weights=None,
-               weight_decay=0.0):
-    """Constructor.
-
-    Args:
-      is_training: See base class.
-      first_stage_features_stride: See base class.
-      reuse_weights: See base class.
-      weight_decay: See base class.
-
-    Raises:
-      ValueError: If `first_stage_features_stride` is not 8 or 16,
-        or if `architecture` is not supported.
-    """
-    super(FasterRCNNResnet152FeatureExtractor, self).__init__(
-        'resnet_v1_152', resnet_v1.resnet_v1_152, is_training,
+        'resnet_v1_50', resnet_v1_50_C4, is_training,
         first_stage_features_stride, reuse_weights, weight_decay)

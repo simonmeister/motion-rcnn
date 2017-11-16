@@ -26,9 +26,8 @@ same preprocessing, batch norm scaling, etc.
 import tensorflow as tf
 
 from object_detection.meta_architectures import faster_rcnn_meta_arch
-from object_detection.models.resnet_v1_util import resnet_v1_50
+from object_detection.models.resnet_v1_util import resnet_v1_50_C6, resnet_v1_block
 from nets import resnet_utils
-from nets import resnet_v1
 
 slim = tf.contrib.slim
 
@@ -94,6 +93,18 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
   def _extract_camera_features(self, rpn_bottleneck, scope):
     return rpn_bottleneck
 
+    with tf.variable_scope(self._architecture, reuse=self._reuse_weights):
+      with slim.arg_scope(
+          resnet_utils.resnet_arg_scope(
+              batch_norm_epsilon=1e-5,
+              batch_norm_scale=True,
+              weight_decay=self._weight_decay)):
+        with slim.arg_scope([slim.batch_norm], is_training=False):
+          blocks = [resnet_v1_block('block5', base_depth=512, num_units=2, stride=2)]
+          camera_features = resnet_utils.stack_blocks_dense(
+              rpn_bottleneck, blocks)
+    return camera_features
+
   def _extract_proposal_features(self, preprocessed_inputs, scope):
     """Extracts first stage RPN features.
 
@@ -149,29 +160,33 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
     pyramid = []
     scope_prefix = scope + '/'
     with tf.variable_scope('pyramid'):
-        C5 = end_points[scope_prefix + handles_map['C5']]
-        P5 = slim.conv2d(C5, 256, [1, 1], stride=1, scope='P5')
-        P6 = resnet_utils.subsample(P5, 2)
-        pyramid = [P6, P5]
+        #C5 = end_points[scope_prefix + handles_map['C5']]
+        #P5 = slim.conv2d(C5, 256, [1, 1], stride=1, scope='P5')
+        #P6 = resnet_utils.subsample(P5, 2)
+        #pyramid = [P6, P5]
 
-        for c in [4, 3, 2]:
-            this_C = end_points[scope_prefix + handles_map['C{}'.format(c)]]
-            prev_P = pyramid[-1]
+        #for c in [4, 3, 2]:
+        C6 = end_points[scope_prefix + handles_map['C6']]
+        P6 = slim.conv2d(C6, 256, [1, 1], stride=1, scope='P6')
+        pyramid = [P6]
+        for c in [5, 4, 3, 2]:
+          this_C = end_points[scope_prefix + handles_map['C{}'.format(c)]]
+          prev_P = pyramid[-1]
 
-            up_shape = tf.shape(this_C)
-            prev_P_up = tf.image.resize_bilinear(
-                prev_P,
-                [up_shape[1], up_shape[2]],
-                name='C{}/upscale'.format(c))
+          up_shape = tf.shape(this_C)
+          prev_P_up = tf.image.resize_bilinear(
+              prev_P,
+              [up_shape[1], up_shape[2]],
+              name='C{}/upscale'.format(c))
 
-            this_C_adapted = slim.conv2d(this_C, 256, [1,1], stride=1,
-                                         scope='C{}'.format(c))
+          this_C_adapted = slim.conv2d(this_C, 256, [1,1], stride=1,
+                                       scope='C{}'.format(c))
 
-            this_P = tf.add(prev_P_up, this_C_adapted,
-                            name='C{}/add'.format(c))
-            this_P = slim.conv2d(this_P, 256, [3,3], stride=1,
-                                 scope='C{}/refine'.format(c))
-            pyramid.append(this_P)
+          this_P = tf.add(prev_P_up, this_C_adapted,
+                          name='C{}/add'.format(c))
+          this_P = slim.conv2d(this_P, 256, [3,3], stride=1,
+                               scope='C{}/refine'.format(c))
+          pyramid.append(this_P)
     return pyramid
 
   def _extract_box_classifier_features(self, proposal_feature_maps, scope):
@@ -211,12 +226,20 @@ class FasterRCNNResnet50FPNFeatureExtractor(FasterRCNNResnetV1FPNFeatureExtracto
       ValueError: If `first_stage_features_stride` is not 8 or 16,
         or if `architecture` is not supported.
     """
-    handles_map = {
-        'C2': 'resnet_v1_50/resnet_v1_50/block1/unit_2/bottleneck_v1',
-        'C3': 'resnet_v1_50/resnet_v1_50/block2/unit_3/bottleneck_v1',
-        'C4': 'resnet_v1_50/resnet_v1_50/block3/unit_5/bottleneck_v1',
-        'C5': 'resnet_v1_50/resnet_v1_50/block4/unit_2/bottleneck_v1',
-        'bottleneck': 'resnet_v1_50/resnet_v1_50/block4'}
+    handles_map= {
+        'C2': 'resnet_v1_50/resnet_v1_50/block1/unit_3/bottleneck_v1',
+        'C3': 'resnet_v1_50/resnet_v1_50/block2/unit_4/bottleneck_v1',
+        'C4': 'resnet_v1_50/resnet_v1_50/block3/unit_6/bottleneck_v1',
+        'C5': 'resnet_v1_50/resnet_v1_50/block4/unit_3/bottleneck_v1',
+        'C6': 'resnet_v1_50/resnet_v1_50/block5/unit_3/bottleneck_v1',
+        'bottleneck': 'resnet_v1_50/resnet_v1_50/block5/unit_3/bottleneck_v1'}
     super(FasterRCNNResnet50FPNFeatureExtractor, self).__init__(
-        'resnet_v1_50', resnet_v1.resnet_v1_50, is_training,
+        'resnet_v1_50', resnet_v1_50_C6, is_training,
         handles_map, reuse_weights, weight_decay)
+
+handles_map_old = {
+    'C2': 'resnet_v1_50/resnet_v1_50/block1/unit_2/bottleneck_v1',
+    'C3': 'resnet_v1_50/resnet_v1_50/block2/unit_3/bottleneck_v1',
+    'C4': 'resnet_v1_50/resnet_v1_50/block3/unit_5/bottleneck_v1',
+    'C5': 'resnet_v1_50/resnet_v1_50/block4/unit_2/bottleneck_v1',
+    'bottleneck': 'resnet_v1_50/resnet_v1_50/block4'}

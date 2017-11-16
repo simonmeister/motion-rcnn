@@ -30,14 +30,10 @@ from object_detection.models import faster_rcnn_resnet_v1_fpn_feature_extractor 
 from object_detection.protos import model_pb2
 
 
-# A map of names to Faster R-CNN feature extractors. # TODO extend for FPN
+# A map of names to Faster R-CNN feature extractors.
 FASTER_RCNN_FEATURE_EXTRACTOR_CLASS_MAP = {
     'faster_rcnn_resnet50':
     frcnn_resnet_v1.FasterRCNNResnet50FeatureExtractor,
-    'faster_rcnn_resnet101':
-    frcnn_resnet_v1.FasterRCNNResnet101FeatureExtractor,
-    'faster_rcnn_resnet152':
-    frcnn_resnet_v1.FasterRCNNResnet152FeatureExtractor,
 
     'faster_rcnn_resnet50_fpn':
     frcnn_resnet_v1_fpn.FasterRCNNResnet50FPNFeatureExtractor,
