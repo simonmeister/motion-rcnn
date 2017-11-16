@@ -265,7 +265,7 @@ class FpnAnchorGenerator(MultipleGridAnchorGenerator):
     k = tf.round(log2(box_scales / min_scale))
     k = tf.minimum(tf.maximum(k, 0), max_k)
 
-    return tf.to_int32(k)
+    return max_k - tf.to_int32(k)
 
 
 if __name__ == '__main__':

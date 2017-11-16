@@ -587,10 +587,10 @@ class FasterRCNNMetaArch(model.DetectionModel):
       for _ in range(2):
         camera_features_flat = slim.fully_connected(
             camera_features_flat, 1024)
-        camera_features_flat = slim.dropout(
-            camera_features_flat,
-            keep_prob=0.5,
-            is_training=self._is_training)
+        #camera_features_flat = slim.dropout(
+        #    camera_features_flat,
+        #    keep_prob=0.5,
+        #    is_training=self._is_training)
       camera_motion = slim.fully_connected(
           camera_features_flat,
           6, #self._num_camera_motion_params, # TODO
@@ -1426,6 +1426,21 @@ class FasterRCNNMetaArch(model.DetectionModel):
                                   mask_height, mask_width])
       detections['detection_masks'] = tf.to_float(
           tf.greater_equal(tf.sigmoid(mask_predictions), mask_threshold))
+
+      # mask feature maps for motion stage
+      #crop_size = tf.shape(refined_box_classifier_features)[1:3]
+      #features_mask = tf.image.resize_area(
+      #    tf.reshape(detections['detection_masks'],
+      #               [-1, mask_height, mask_width, 1]),
+      #    crop_size)
+      # refined_masked_box_classifier_features = (
+      #    refined_box_classifier_features * features_mask)
+
+      #refined_box_predictions = self._mask_rcnn_box_predictor.predict(
+      #  refined_masked_box_classifier_features,
+      #  num_predictions_per_location=1,
+      #  scope=self.second_stage_box_predictor_scope,
+      #  reuse=True)
 
     if box_predictor.MOTION_PREDICTIONS in refined_box_predictions:
       motion_predictions_per_class = tf.squeeze(

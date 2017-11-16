@@ -27,6 +27,7 @@ same preprocessing, batch norm scaling, etc.
 import tensorflow as tf
 
 from object_detection.meta_architectures import faster_rcnn_meta_arch
+from object_detection.models.resnet_v1_util import resnet_v1_50
 from nets import resnet_utils
 from nets import resnet_v1
 
@@ -142,9 +143,9 @@ class FasterRCNNResnetV1FeatureExtractor(
     return features, features
 
   def _extract_camera_features(self, rpn_bottleneck, scope):
-    return self._extract_box_classifier_features(rpn_bottleneck, scope)
+    return self._extract_box_classifier_features(rpn_bottleneck, scope, stride=2)
 
-  def _extract_box_classifier_features(self, proposal_feature_maps, scope):
+  def _extract_box_classifier_features(self, proposal_feature_maps, scope, stride=1):
     """Extracts second stage box classifier features.
 
     Args:
@@ -169,7 +170,7 @@ class FasterRCNNResnetV1FeatureExtractor(
               resnet_utils.Block('block4', resnet_v1.bottleneck, [{
                   'depth': 2048,
                   'depth_bottleneck': 512,
-                  'stride': 1
+                  'stride': stride
               }] * 3)
           ]
           proposal_classifier_features = resnet_utils.stack_blocks_dense(

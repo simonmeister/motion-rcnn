@@ -390,10 +390,10 @@ class MaskRCNNBoxPredictor(BoxPredictor):
       for _ in range(2):
         flattened_image_features = slim.fully_connected(
             flattened_image_features, 1024)
-        flattened_image_features = slim.dropout(
-            flattened_image_features,
-            keep_prob=0.5,
-            is_training=self._is_training)
+        #flattened_image_features = slim.dropout(
+        #    flattened_image_features,
+        #    keep_prob=0.5,
+        #    is_training=self._is_training)
     else:
       spatial_averaged_image_features = tf.reduce_mean(image_features, [1, 2],
                                                        keep_dims=True,
@@ -453,14 +453,14 @@ class MaskRCNNBoxPredictor(BoxPredictor):
 
     if self._predict_instance_motions:
       with slim.arg_scope(self._fc_hyperparams):
-        #motion_features = flattened_image_features
-        motion_features = slim.flatten(mask_features)
+        motion_features = flattened_image_features
+        #motion_features = slim.flatten(mask_features)
         for _ in range(2):
           motion_features = slim.fully_connected(motion_features, 1024)
-          motion_features = slim.dropout(
-              motion_features,
-              keep_prob=0.5,
-              is_training=self._is_training)
+          #motion_features = slim.dropout(
+          #    motion_features,
+          #    keep_prob=0.5,
+          #    is_training=self._is_training)
         motion_predictions = slim.fully_connected(
             motion_features,
             self._num_classes * self._num_motion_params,

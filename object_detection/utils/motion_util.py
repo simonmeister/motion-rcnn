@@ -91,9 +91,9 @@ def _motion_losses(pred, target, has_moving=True, has_pivot=True):
   num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 12
   num_gt = 1 + int(has_pivot) * 3 + 12
   assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
-                                name='_motion_loss_assert_pred')
+                                name='motion_loss_assert_pred')
   assert_target = tf.assert_equal(tf.shape(target)[1], num_gt,
-                                  name='_motion_loss_assert_target')
+                                  name='motion_loss_assert_target')
   with tf.control_dependencies([assert_pred, assert_target]):
     rot = tf.reshape(pred[:, 0:9], [-1, 3, 3])
     trans = pred[:, 9:12]
@@ -169,7 +169,7 @@ def postprocess_motions(pred, has_pivot=True, has_moving=True,
   """
   num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 6
   assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
-                                name='_postprocess_motions_assert_pred')
+                                name='postprocess_motions_assert_pred')
   with tf.control_dependencies([assert_pred]):
     angle_sines = clip_to_open_interval(pred[:, 0:3])
     rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
