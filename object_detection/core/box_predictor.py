@@ -32,6 +32,8 @@ from object_detection.utils import ops
 from object_detection.utils import shape_utils
 from object_detection.utils import static_shape
 
+from nets import resnet_utils
+
 slim = tf.contrib.slim
 
 BOX_ENCODINGS = 'box_encodings'
@@ -427,12 +429,14 @@ class MaskRCNNBoxPredictor(BoxPredictor):
     }
 
     with slim.arg_scope(self._conv_hyperparams):
-      mask_features = image_features
-      for _ in range(self._num_layers_before_mask_prediction):
-        mask_features = slim.conv2d(mask_features,
-                                    num_outputs=self._mask_prediction_conv_depth,
-                                    kernel_size=[3, 3],
-                                    stride=1)
+      #with slim.arg_scope(resnet_utils.resnet_arg_scope()):
+        #with slim.arg_scope([slim.batch_norm], is_training=self._is_training):
+          mask_features = image_features
+          for _ in range(self._num_layers_before_mask_prediction):
+            mask_features = slim.conv2d(mask_features,
+                                        num_outputs=self._mask_prediction_conv_depth,
+                                        kernel_size=[3, 3],
+                                        stride=1)
 
     if self._predict_instance_masks:
       with slim.arg_scope(self._conv_hyperparams):

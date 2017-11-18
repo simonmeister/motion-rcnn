@@ -93,18 +93,6 @@ class FasterRCNNResnetV1FPNFeatureExtractor(
   def _extract_camera_features(self, rpn_bottleneck, scope):
     return rpn_bottleneck
 
-    with tf.variable_scope(self._architecture, reuse=self._reuse_weights):
-      with slim.arg_scope(
-          resnet_utils.resnet_arg_scope(
-              batch_norm_epsilon=1e-5,
-              batch_norm_scale=True,
-              weight_decay=self._weight_decay)):
-        with slim.arg_scope([slim.batch_norm], is_training=False):
-          blocks = [resnet_v1_block('block5', base_depth=512, num_units=2, stride=2)]
-          camera_features = resnet_utils.stack_blocks_dense(
-              rpn_bottleneck, blocks)
-    return camera_features
-
   def _extract_proposal_features(self, preprocessed_inputs, scope):
     """Extracts first stage RPN features.
 

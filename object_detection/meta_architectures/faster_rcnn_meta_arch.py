@@ -580,7 +580,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
           512,
           kernel_size=[1, 1],
           activation_fn=tf.nn.relu)
-      #camera_features_resized = tf.reduce_mean(camera_features, [1, 2], keep_dims=True)
+      camera_features_resized = tf.reduce_mean(camera_features, [1, 2], keep_dims=True)
       camera_features_resized = tf.image.resize_bilinear(
           camera_features_conv, [7, 7])
       camera_features_flat = slim.flatten(camera_features_resized)

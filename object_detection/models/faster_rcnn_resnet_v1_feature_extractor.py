@@ -150,7 +150,9 @@ class FasterRCNNResnetV1FeatureExtractor(
               weight_decay=self._weight_decay)):
         with slim.arg_scope([slim.batch_norm], is_training=False):
           blocks = [resnet_v1_block('block4', base_depth=512, num_units=3, stride=2),
-                    resnet_v1_block('block5', base_depth=512, num_units=2, stride=2)]
+                    resnet_v1_block('block5', base_depth=512, num_units=2, stride=2),
+                    #resnet_v1_block('block6', base_depth=512, num_units=2, stride=2)
+                    ]
           camera_features = resnet_utils.stack_blocks_dense(
               rpn_bottleneck, blocks)
     return camera_features

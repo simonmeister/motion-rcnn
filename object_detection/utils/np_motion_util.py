@@ -65,7 +65,7 @@ def dense_flow_from_motion(depth, motions, masks, camera_motion,
     trans = np.reshape(motions[i, 9:12], [3])
     pivot = np.reshape(motions[i, 12:15], [3])
     mask = np.expand_dims(masks[i, :, :], 2)
-    P += mask * ((P - pivot).dot(rot.T) + pivot + trans - P)
+    #P += mask * ((P - pivot).dot(rot.T) + pivot + trans - P)
 
   #moving_cam = camera_motion[12]
   rot_cam = np.reshape(camera_motion[:9], [3, 3])
