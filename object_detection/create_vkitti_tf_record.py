@@ -92,12 +92,30 @@ def _get_pivot(dct):
   return np.array([dct['x3d'], dct['y3d'], dct['z3d']], dtype=np.float32)
 
 
+def _Rt_to_hom(R, t):
+  t = np.expand_dims(t, axis=1)
+  h = np.concatenate([R, t], axis=1)
+  last_row = np.expand_dims(np.array([0.0, 0.0, 0.0, 1.0]), axis=0)
+  return np.concatenate([h, last_row], axis=0)
+
+
+def _hom_to_Rt(hom):
+  return
+
+def _p_to_hom(p):
+  return np.concatenate([p, np.array([1.0])])
+
+
+def _hom_to_p(p_hom):
+  return p_hom[:3] / p_hom[3]
+
+
 def _create_tfexample(label_map_dict,
                       image_id, encoded_image, encoded_next_image,
                       depth, next_depth, flow, segmentation,
                       extrinsics_dict, next_extrinsics_dict,
                       tracking_rows, next_tracking_rows,
-                      segmentation_color_map):
+                      segmentation_color_map, first_extrinsics_dict):
   frame_id = int(image_id.split('_')[1])
   assert frame_id == extrinsics_dict['frame'] == next_extrinsics_dict['frame'] - 1
   next_tracking_row_map = {row['tid']: row for row in next_tracking_rows}
@@ -107,6 +125,8 @@ def _create_tfexample(label_map_dict,
       np.array(list(extrinsics_dict.values())[1:], dtype=np.float32), [4, 4])
   next_extrinsics = np.reshape(
       np.array(list(next_extrinsics_dict.values())[1:], dtype=np.float32), [4, 4])
+  first_extrinsics = np.reshape(
+      np.array(list(first_extrinsics_dict.values())[1:], dtype=np.float32), [4, 4])
   camera_moving = not np.allclose(extrinsics, next_extrinsics)
   rot_cam1 = extrinsics[:3, :3]
   rot_cam2 = next_extrinsics[:3, :3]
@@ -120,10 +140,12 @@ def _create_tfexample(label_map_dict,
                                   np.array([camera_moving], dtype=np.float32)])
   cam2_to_cam1_hom = extrinsics @ np.linalg.inv(next_extrinsics)
 
+
   boxes = []
   masks = []
   classes = []
   motions = []
+  diff = 0
   for row in tracking_rows:
     next_row = next_tracking_row_map.get(row['tid'])
     label = row['orig_label']
@@ -143,36 +165,47 @@ def _create_tfexample(label_map_dict,
           (segmentation[:, :, 2] == seg_b).astype(np.uint8))
       mask = (mask == 3).astype(np.uint8)
       masks.append(mask)
-      p1 = _get_pivot(row)
       moving = int(row['moving'])
-
-      r1 = _euler_to_rot(row)
-      r2_cam2 = _euler_to_rot(next_row)
-      r2 = rot_cam2_to_cam1 @ r2_cam2
-      r1_to_r2 = r2 @ r1.T
+      p1 = _get_pivot(row)
       p2 = _get_pivot(next_row)
+      r1 = _euler_to_rot(row)
+      r2 = _euler_to_rot(next_row)
+      hom1 = _Rt_to_hom(r1, p1)
+      hom2 = _Rt_to_hom(r2, p2)
+      #obj_1_to_2 = hom2 @ np.linalg.inv(hom1)
+      #obj_1_to_2 = hom2 @ np.linalg.inv(extrinsics) @ next_extrinsics @ np.linalg.inv(hom1)
+      #print(obj_1_to_2)
+      #r1_to_r2, p1_to_p2 = _hom_to_Rt(obj_1_to_2)
+      r2 = rot_cam2_to_cam1 @ r2
+      r1_to_r2 = r2 @ r1.T
+      #print(r1_to_r2)
+      #r1_to_r2 = r2_cam2 @ rot_cam2 @ rot_cam1.T @ r1.T
       p2_hom = np.concatenate([p2, np.array([1])])
       p2_cam1_hom = cam2_to_cam1_hom @ p2_hom
       p2_cam1 = p2_cam1_hom[:3] / p2_cam1_hom[3]
-      p1_to_p2 = p2_cam1 - p1
+      p1_to_p2 = p2_cam1 - (r1_to_r2 @ p1)
       if moving == 0:
-        if not np.allclose(p1_to_p2, np.zeros_like(p1_to_p2), atol=1e-4):
-          print('trans', np.mean(p1_to_p2))
-        if not np.allclose(r1_to_r2, np.eye(3), atol=1e-2):
-          print('rot', np.arccos(np.clip((np.trace(r1_to_r2, axis1=0, axis2=1) - 1) / 2, -1, 1)))
+        #if not np.allclose(p1_to_p2, np.zeros_like(p1_to_p2), atol=1e-4):
+        #  print('trans', np.mean(p1_to_p2))
+        #if not np.allclose(r1_to_r2, np.eye(3), atol=1e-2):
+        #  print('rot', np.arccos(np.clip((np.trace(r1_to_r2, axis1=0, axis2=1) - 1) / 2, -1, 1)))
         r1_to_r2 = np.eye(3, dtype=np.float32)
         p1_to_p2 = np.zeros([3], dtype=np.float32)
       motion = np.concatenate([r1_to_r2.ravel(), p1_to_p2, p1,
                                np.array([moving], dtype=np.float32)])
+      if moving == 1:
+        diff += np.sum(np.abs(rot_cam1_to_cam2 @ ((r1_to_r2 @ p1) + p1_to_p2) + trans_cam1_to_cam2 - p2))
+        #diff += np.sum(np.abs(_hom_to_p(obj_1_to_2 @ _p_to_hom(p1)) - p2))
       motions.append(motion)
+  print(diff)
   if len(boxes) > 0:
       boxes = np.stack(boxes, axis=0)
       masks = np.stack(masks, axis=0)
       motions = np.stack(motions, axis=0)
   else:
-      boxes = np.zeros((0, 5), dtype=np.float32)
-      masks = np.zeros((0, height, width), dtype=np.float32)
-      motions = np.zeros((0, 15), dtype=np.float32)
+    boxes = np.zeros((0, 5), dtype=np.float32)
+    masks = np.zeros((0, height, width), dtype=np.float32)
+    motions = np.zeros((0, 15), dtype=np.float32)
 
   num_instances = boxes.shape[0]
 
@@ -332,7 +365,8 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
            image_seq[i], image_seq[i + 1],
            depth_seq[i], depth_seq[i + 1], flow_seq[i], segmentation_seq[i],
            extrinsics_seq[i], extrinsics_seq[i + 1],
-           tracking_seq[i], tracking_seq[i + 1]))
+           tracking_seq[i], tracking_seq[i + 1],
+           extrinsics_seq[0]))
 
   random.seed(0)
   random.shuffle(example_infos)
@@ -359,7 +393,7 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
         (seq_id, frame_id,
          image_fn, next_image_fn, depth_fn, next_depth_fn, flow_fn, segmentation_fn,
          extrinsics_rows, next_extrinsics_rows,
-         tracking_rows, next_tracking_rows) = example_infos[i]
+         tracking_rows, next_tracking_rows, first_extrinsics_rows) = example_infos[i]
 
         if i % 1 == 0:
           sys.stdout.write('\r>> Converting image %d/%d shard %d\n' % (
@@ -379,7 +413,8 @@ def _write_tfrecord(record_dir, dataset_dir, split_name, label_map_dict,
             image_id, image, next_image, depth, next_depth, flow, segmentation,
             extrinsics_rows[0], next_extrinsics_rows[0],
             tracking_rows, next_tracking_rows,
-            segmentation_color_maps[seq_id])
+            segmentation_color_maps[seq_id],
+            first_extrinsics_rows[0])
 
         if num_instances > 0 or is_training == False:
           created_count += 1

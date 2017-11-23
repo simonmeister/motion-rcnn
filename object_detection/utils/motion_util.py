@@ -6,6 +6,15 @@
 import tensorflow as tf
 
 
+# in radians
+CAM_MEAN_SINE = 0.00487
+OBJ_MEAN_SINE = 0.00384
+
+CAM_MEAN_TRANSLATION = 0.684
+OBJ_MEAN_TRANSLATION = 0.442
+
+
+
 def clip_to_open_interval(x, xmin=-1.0, xmax=1.0, eps=1e-08):
   """Clip value to be strictly within the limits.
   E.g., the return value with default limits is safe to be
@@ -75,7 +84,9 @@ def _l1_loss(diff, reduce_dims=[1]):
   return tf.reduce_sum(tf.abs(diff), reduce_dims)
 
 
-def _motion_losses(pred, target, has_moving=True, has_pivot=True):
+def _motion_losses(pred, target, has_moving=True, has_pivot=True,
+                   sine_normalizer=None,
+                   trans_normalizer=None):
   """
   Args:
     pred: tensor of shape [num_predictions, num_pred] containing predicted
@@ -106,6 +117,12 @@ def _motion_losses(pred, target, has_moving=True, has_pivot=True):
 
     l_angle = _smoothl1_loss(d_rot)
     l_trans = _smoothl1_loss(d_trans)
+
+    if sine_normalizer is not None:
+      l_angle = l_angle / sine_normalizer
+
+    if trans_normalizer is not None:
+      l_trans = l_trans / trans_normalizer
 
     if has_pivot:
       pivot = pred[:, 12:15]
@@ -147,8 +164,12 @@ def batch_postprocess_motions(pred, has_pivot=True, has_moving=True,
   return res
 
 
-def postprocess_motions(pred, has_pivot=True, has_moving=True,
-                        keep_logits=True):
+def postprocess_motions(pred,
+                        has_pivot=True,
+                        has_moving=True,
+                        keep_logits=True,
+                        sine_normalizer=None,
+                        trans_normalizer=None):
   """Convert predicted motions to use matrix representation for rotations.
   Restrict range of angle sines to [-1, 1].
   If keep_logits=False, convert moving logits to scores.
@@ -171,10 +192,15 @@ def postprocess_motions(pred, has_pivot=True, has_moving=True,
   assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
                                 name='postprocess_motions_assert_pred')
   with tf.control_dependencies([assert_pred]):
-    angle_sines = clip_to_open_interval(pred[:, 0:3])
+    angle_sines = pred[:, 0:3]
+    if sine_normalizer is not None:
+      angle_sines = angle_sines * sine_normalizer
+    angle_sines = clip_to_open_interval(angle_sines)
     rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
     res = tf.reshape(rot, [-1, 9])
     trans = pred[:, 3:6]
+    if trans_normalizer is not None:
+      trans = trans * trans_normalizer
     res = tf.concat([res, trans], axis=1)
     if has_pivot:
       pivot = pred[:, 6:9]
@@ -191,14 +217,22 @@ def postprocess_motions(pred, has_pivot=True, has_moving=True,
   return res
 
 
-def postprocess_detection_motions(pred, has_moving=True, keep_logits=True):
+def postprocess_detection_motions(pred, has_moving=True, keep_logits=True,
+                                  sine_normalizer=OBJ_MEAN_SINE,
+                                  trans_normalizer=OBJ_MEAN_TRANSLATION):
   """Postprocess instance motions."""
   return postprocess_motions(pred, has_pivot=True, has_moving=has_moving,
-                             keep_logits=keep_logits)
+                             keep_logits=keep_logits,
+                             sine_normalizer=sine_normalizer,
+                             trans_normalizer=trans_normalizer)
 
 
-def postprocess_camera_motion(pred):
-  return postprocess_motions(pred, has_pivot=False, has_moving=False)
+def postprocess_camera_motion(pred,
+                              sine_normalizer=CAM_MEAN_SINE,
+                              trans_normalizer=CAM_MEAN_TRANSLATION):
+  return postprocess_motions(pred, has_pivot=False, has_moving=False,
+                             sine_normalizer=sine_normalizer,
+                             trans_normalizer=trans_normalizer)
 
 
 def motion_loss(pred, target, weights):
@@ -217,7 +251,9 @@ def motion_loss(pred, target, weights):
                                     keep_logits=True),
       tf.reshape(target, [-1, 16]),
       has_moving=True,
-      has_pivot=True)
+      has_pivot=True,
+      sine_normalizer=OBJ_MEAN_SINE,
+      trans_normalizer=OBJ_MEAN_TRANSLATION)
 
   loss = (l_angle + l_trans) * gt_moving + l_pivot + l_moving
   return tf.reshape(loss, [batch_size, num_anchors]) * weights
@@ -237,7 +273,9 @@ def camera_motion_loss(pred, target):
     postprocess_camera_motion(pred),
     target,
     has_moving=False,
-    has_pivot=False)
+    has_pivot=False,
+    sine_normalizer=CAM_MEAN_SINE,
+    trans_normalizer=CAM_MEAN_TRANSLATION)
 
   return l_angle + l_trans
 

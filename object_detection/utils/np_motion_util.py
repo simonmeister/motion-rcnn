@@ -65,7 +65,7 @@ def dense_flow_from_motion(depth, motions, masks, camera_motion,
     trans = np.reshape(motions[i, 9:12], [3])
     pivot = np.reshape(motions[i, 12:15], [3])
     mask = np.expand_dims(masks[i, :, :], 2)
-    #P += mask * ((P - pivot).dot(rot.T) + pivot + trans - P)
+    P += mask * ((P - pivot).dot(rot.T) + pivot + trans - P)
 
   #moving_cam = camera_motion[12]
   rot_cam = np.reshape(camera_motion[:9], [3, 3])
@@ -193,8 +193,8 @@ def _motion_errors(pred, target, has_moving=True):
       'mPivot': mean_pivot,
       'mRelAngle': mean_rel_angle,
       'mRelTrans': mean_rel_trans,
-      'mAveAngle': np.mean(_rotation_angle(rot)),
-      'mAveTrans': np.mean(np.linalg.norm(trans, axis=1))}
+      'mAveAngle': np.mean(_rotation_angle(gt_rot)),
+      'mAveTrans': np.mean(np.linalg.norm(gt_trans, axis=1))}
 
   error_dict = {k: np.asscalar(v) for (k, v) in error_dict.items()}
   error_dict.update(moving_dict)
