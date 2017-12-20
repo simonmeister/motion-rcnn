@@ -140,7 +140,6 @@ def _create_tfexample(label_map_dict,
                                   np.array([camera_moving], dtype=np.float32)])
   cam2_to_cam1_hom = extrinsics @ np.linalg.inv(next_extrinsics)
 
-
   boxes = []
   masks = []
   classes = []
@@ -178,6 +177,7 @@ def _create_tfexample(label_map_dict,
       #r1_to_r2, p1_to_p2 = _hom_to_Rt(obj_1_to_2)
       r2 = rot_cam2_to_cam1 @ r2
       r1_to_r2 = r2 @ r1.T
+      #r1_to_r2 = r2 @ rot_cam1_to_cam2 @ r1.T
       #print(r1_to_r2)
       #r1_to_r2 = r2_cam2 @ rot_cam2 @ rot_cam1.T @ r1.T
       p2_hom = np.concatenate([p2, np.array([1])])
