@@ -593,8 +593,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
         #    is_training=self._is_training)
       camera_motion = slim.fully_connected(
           camera_features_flat,
-          6, #self._num_camera_motion_params, # TODO
-          weights_initializer=tf.truncated_normal_initializer(0.0, 0.01), # 0.0001
+          7, #self._num_camera_motion_params, # TODO
+          weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
           activation_fn=None,
           scope='CameraMotionPredictor')
     prediction_dict = {

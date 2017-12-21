@@ -16,10 +16,12 @@ import shutil
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.lib.io.tf_record import TFRecordCompressionType
+import quaternion
 
 from object_detection.utils import dataset_util
 from object_detection.utils import label_map_util
 from object_detection.utils.np_motion_util import dense_flow_from_motion, euler_to_rot, _rotation_angle
+from object_detection.utils.np_motion_util import q_multiply, q_conjugate, q_difference
 
 
 flags = tf.app.flags
@@ -81,33 +83,39 @@ def _get_record_filename(record_dir, shard_id, num_shards):
     return os.path.join(record_dir, output_filename)
 
 
-def _euler_to_rot(dct):
-  x = dct['rx']
-  y = dct['ry']
-  z = dct['rz']
-  return euler_to_rot(x, y, z)
+def q_rotate(q, p):
+  p = np.concatenate([[0], p])
+  return q_multiply(q_multiply(q, p), q_conjugate(q))[1:]
+
+
+def q_from_rotation_matrix(R):
+  q = quaternion.as_float_array(quaternion.from_rotation_matrix(R))
+  return q
+
+
+def q_from_angles(x, y, z):
+  xs = np.sin(x / 2)
+  ys = np.sin(y / 2)
+  zs = np.sin(z / 2)
+  xc = np.cos(x / 2)
+  yc = np.cos(y / 2)
+  zc = np.cos(z / 2)
+  return np.array([
+     xc * yc * zc + xs * ys * zs,
+     xs * yc * zc - xc * ys * zs,
+     xc * ys * zc + xs * yc * zs,
+     xc * yc * zs - xs * ys * zc])
 
 
 def _get_pivot(dct):
   return np.array([dct['x3d'], dct['y3d'], dct['z3d']], dtype=np.float32)
 
 
-def _Rt_to_hom(R, t):
-  t = np.expand_dims(t, axis=1)
-  h = np.concatenate([R, t], axis=1)
-  last_row = np.expand_dims(np.array([0.0, 0.0, 0.0, 1.0]), axis=0)
-  return np.concatenate([h, last_row], axis=0)
-
-
-def _hom_to_Rt(hom):
-  return
-
-def _p_to_hom(p):
-  return np.concatenate([p, np.array([1.0])])
-
-
-def _hom_to_p(p_hom):
-  return p_hom[:3] / p_hom[3]
+def _get_q(dct):
+  x = dct['rx']
+  y = dct['ry']
+  z = dct['rz']
+  return q_from_angles(x, y, z)
 
 
 def _create_tfexample(label_map_dict,
@@ -128,17 +136,17 @@ def _create_tfexample(label_map_dict,
   first_extrinsics = np.reshape(
       np.array(list(first_extrinsics_dict.values())[1:], dtype=np.float32), [4, 4])
   camera_moving = not np.allclose(extrinsics, next_extrinsics)
-  rot_cam1 = extrinsics[:3, :3]
-  rot_cam2 = next_extrinsics[:3, :3]
+  q_cam1 = q_from_rotation_matrix(extrinsics[:3, :3])
+  q_cam2 = q_from_rotation_matrix(next_extrinsics[:3, :3])
   trans_cam1 = extrinsics[:3, 3]
   trans_cam2 = next_extrinsics[:3, 3]
-  rot_cam2_to_cam1 = rot_cam1 @ rot_cam2.T
-  rot_cam1_to_cam2 = rot_cam2_to_cam1.T
-  trans_cam1_to_cam2 = trans_cam2 - rot_cam1_to_cam2 @ trans_cam1
-  camera_motion = np.concatenate([rot_cam1_to_cam2.ravel(),
-                                  trans_cam1_to_cam2.ravel(),
+  q_cam1_to_cam2 = q_difference(q_cam1, q_cam2)
+  q_cam2_to_cam1 = q_conjugate(q_cam1_to_cam2)
+  trans_cam1_to_cam2 = trans_cam2 - q_rotate(q_cam1_to_cam2, trans_cam1)
+  trans_cam2_to_cam1 = trans_cam1 - q_rotate(q_cam2_to_cam1, trans_cam2)
+  camera_motion = np.concatenate([q_cam1_to_cam2,
+                                  trans_cam1_to_cam2,
                                   np.array([camera_moving], dtype=np.float32)])
-  cam2_to_cam1_hom = extrinsics @ np.linalg.inv(next_extrinsics)
 
   boxes = []
   masks = []
@@ -167,35 +175,20 @@ def _create_tfexample(label_map_dict,
       moving = int(row['moving'])
       p1 = _get_pivot(row)
       p2 = _get_pivot(next_row)
-      r1 = _euler_to_rot(row)
-      r2 = _euler_to_rot(next_row)
-      hom1 = _Rt_to_hom(r1, p1)
-      hom2 = _Rt_to_hom(r2, p2)
-      #obj_1_to_2 = hom2 @ np.linalg.inv(hom1)
-      #obj_1_to_2 = hom2 @ np.linalg.inv(extrinsics) @ next_extrinsics @ np.linalg.inv(hom1)
-      #print(obj_1_to_2)
-      #r1_to_r2, p1_to_p2 = _hom_to_Rt(obj_1_to_2)
-      r2 = rot_cam2_to_cam1 @ r2
-      r1_to_r2 = r2 @ r1.T
-      #r1_to_r2 = r2 @ rot_cam1_to_cam2 @ r1.T
-      #print(r1_to_r2)
-      #r1_to_r2 = r2_cam2 @ rot_cam2 @ rot_cam1.T @ r1.T
-      p2_hom = np.concatenate([p2, np.array([1])])
-      p2_cam1_hom = cam2_to_cam1_hom @ p2_hom
-      p2_cam1 = p2_cam1_hom[:3] / p2_cam1_hom[3]
-      p1_to_p2 = p2_cam1 - (r1_to_r2 @ p1)
+      q1 = _get_q(row)
+      q2 = _get_q(next_row)
+      q = q_multiply(q2, q_multiply(q_cam1_to_cam2, q_conjugate(q1)))
+      p2_cam1 = q_rotate(q_cam2_to_cam1, p2) + trans_cam2_to_cam1
+      trans = p2_cam1 - q_rotate(q, p1)
       if moving == 0:
-        #if not np.allclose(p1_to_p2, np.zeros_like(p1_to_p2), atol=1e-4):
-        #  print('trans', np.mean(p1_to_p2))
-        #if not np.allclose(r1_to_r2, np.eye(3), atol=1e-2):
-        #  print('rot', np.arccos(np.clip((np.trace(r1_to_r2, axis1=0, axis2=1) - 1) / 2, -1, 1)))
-        r1_to_r2 = np.eye(3, dtype=np.float32)
-        p1_to_p2 = np.zeros([3], dtype=np.float32)
-      motion = np.concatenate([r1_to_r2.ravel(), p1_to_p2, p1,
-                               np.array([moving], dtype=np.float32)])
+        q = np.array([0, 0, 0, 1], dtype=np.float32)
+        trans = np.array([0, 0, 0], dtype=np.float32)
+      mv = np.array([moving], dtype=np.float32)
+      motion = np.concatenate([q, trans, p1, mv])
       if moving == 1:
-        diff += np.sum(np.abs(rot_cam1_to_cam2 @ ((r1_to_r2 @ p1) + p1_to_p2) + trans_cam1_to_cam2 - p2))
-        #diff += np.sum(np.abs(_hom_to_p(obj_1_to_2 @ _p_to_hom(p1)) - p2))
+        diff += np.sum(np.abs(
+            q_rotate(q_cam1_to_cam2, q_rotate(q, p1) + trans) + trans_cam1_to_cam2
+            - p2))
       motions.append(motion)
   print(diff)
   if len(boxes) > 0:

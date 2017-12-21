@@ -31,14 +31,54 @@ def _3d_to_pixels(points, camera_intrinsics):
   return x, y
 
 
+def q_multiply(q1, q2):
+  w1, x1, y1, z1 = np.split(q1, 4, axis=-1)
+  w2, x2, y2, z2 = np.split(q2, 4, axis=-1)
+  w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+  x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+  y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
+  z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
+  return np.concatenate((w, x, y, z), axis=-1)
+
+
+def q_conjugate(q):
+  w, x, y, z = np.split(q, 4, axis=-1)
+  return np.concatenate((w, -x, -y, -z), axis=-1)
+
+
+def q_identity(n):
+  return np.concatenate([np.zeros([n, 3]), np.ones([n, 1])], axis=1)
+
+
+def q_rotation_angle(q):
+  w, x, y, z = np.split(q, 4, axis=-1)
+  return 2 * np.arctan2(np.sqrt(x ** 2 + y ** 2 + z ** 2), w)
+
+
+def q_difference(q1, q2):
+  return q_multiply(q2, q_conjugate(q1))
+
+
+def q_rotate(q, p):
+  """Rotate points by unit quaternion.
+  Args:
+    q: unit quaternion of shape [4].
+    p: points of shape [..., 3].
+  """
+  #if len(q.shape) == 1:
+  #  q = np.expand_dims(q, axis=0)
+  p = np.concatenate([np.zeros(p.shape[:-1] + (1,)), p], axis=-1)
+  return q_multiply(q_multiply(q, p), q_conjugate(q))[..., 1:]
+
+
 def dense_flow_from_motion(depth, motions, masks, camera_motion,
                            camera_intrinsics):
   """Compute optical flow map from depth and motion data.
 
   Args:
     depth: array with shape [height, width, 1].
-    motions: array with shape [num_detections, 16],
-      (rot_9, trans_3, piv_3, moving_1).
+    motions: array with shape [num_detections, 11],
+      (rot_4, trans_3, piv_3, moving_1).
     masks: array with shape [num_detections, height, width]
     camera_motion: array with shape [12].
     camera_intrinsics: array with shape [3].
@@ -58,20 +98,20 @@ def dense_flow_from_motion(depth, motions, masks, camera_motion,
   P = np.stack([X, Y, Z], axis=2)
 
   for i in range(motions.shape[0]):
-    moving = motions[i, 15]
+    moving = motions[i, 10]
     if moving < 0.5:
       continue
-    rot = np.reshape(motions[i, :9], [3, 3])
-    trans = np.reshape(motions[i, 9:12], [3])
-    pivot = np.reshape(motions[i, 12:15], [3])
+    q = motions[i, :4]
+    trans = motions[i, 4:7]
+    pivot = motions[i, 7:10]
     mask = np.expand_dims(masks[i, :, :], 2)
-    P += mask * ((P - pivot).dot(rot.T) + pivot + trans - P)
+    P += mask * (q_rotate(q, P - pivot) + pivot + trans - P)
 
   #moving_cam = camera_motion[12]
-  rot_cam = np.reshape(camera_motion[:9], [3, 3])
-  trans_cam = np.reshape(camera_motion[9:12], [-1])
+  q_cam = camera_motion[:4]
+  trans_cam = camera_motion[4:7]
   #if moving_cam > 0.5:
-  P = P.dot(rot_cam.T) + trans_cam
+  P = q_rotate(q_cam, P) + trans_cam
 
   x_t, y_t = _3d_to_pixels(P, camera_intrinsics)
   points_t = np.stack([x_t, y_t], axis=2)
@@ -135,15 +175,15 @@ def _motion_errors(pred, target, has_moving=True):
       rotation, translation, pivot, relative rotation and relative translation
       errors
   """
-  rot = np.reshape(pred[:, 0:9], [-1, 3, 3])
-  trans = pred[:, 9:12]
-  pivot = pred[:, 12:15]
+  q = np.reshape(pred[:, 0:4], [-1, 3, 3])
+  trans = pred[:, 4:7]
+  pivot = pred[:, 7:10]
 
   if has_moving:
-    moving = pred[:, 15:16] > 0.5
-    rot = np.where(np.expand_dims(moving, 2), rot, _get_rotation_eye(rot))
+    moving = pred[:, 10:11] > 0.5
+    q = np.where(np.expand_dims(moving, 2), q, q_identity(q.shape[0]))
     trans = np.where(moving, trans, np.zeros_like(trans))
-    gt_moving = target[:, 15:16] > 0.5
+    gt_moving = target[:, 10:11] > 0.5
     TP = np.sum(np.logical_and(gt_moving == 1, moving == 1))
     FP = np.sum(np.logical_and(gt_moving == 0, moving == 1))
     FN = np.sum(np.logical_and(gt_moving == 1, moving == 0))
@@ -154,12 +194,11 @@ def _motion_errors(pred, target, has_moving=True):
   else:
     moving_dict = {}
 
-  gt_rot = np.reshape(target[:, 0:9], [-1, 3, 3])
-  gt_trans = target[:, 9:12]
-  gt_pivot = target[:, 12:15]
+  gt_q = target[:, 0:4]
+  gt_trans = target[:, 4:7]
+  gt_pivot = target[:, 7:10]
 
-  rot_T = np.transpose(rot, [0, 2, 1])
-  d_rot = gt_rot @ rot_T
+  d_q = q_difference(q, gt_q)
   d_trans = gt_trans - trans
   d_pivot = gt_pivot - pivot
 
@@ -168,7 +207,7 @@ def _motion_errors(pred, target, has_moving=True):
   err_pivot = np.linalg.norm(d_pivot, axis=1)
 
   np.seterr(divide='ignore')
-  err_rel_angle = err_angle / _rotation_angle(gt_rot)
+  err_rel_angle = err_angle / q_rotation_angle(gt_rot)
   err_rel_trans = err_trans / np.linalg.norm(gt_trans, axis=1)
   err_rel_angle = err_rel_angle[np.isfinite(err_rel_angle)]
   err_rel_trans = err_rel_trans[np.isfinite(err_rel_trans)]

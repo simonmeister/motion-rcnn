@@ -20,7 +20,7 @@ from cityscapesscripts.helpers.labels import trainId2label
 
 from object_detection.data_decoders.tf_example_decoder import TfExampleDecoder
 from object_detection.utils.flow_util import flow_to_color, flow_error_image, flow_error_avg
-from object_detection.utils.np_motion_util import dense_flow_from_motion, _rotation_angle
+from object_detection.utils.np_motion_util import dense_flow_from_motion, q_rotation_angle
 from object_detection.utils.visualization_utils import visualize_flow
 
 
@@ -74,10 +74,9 @@ with tf.Graph().as_default():
                 groundtruth_flow=example_np['groundtruth_flow'])
 
             # motion gt summary
-            gt_rot = np.reshape(gt_motions_np[:, :9], [-1, 3, 3])
-            gt_trans = np.reshape(gt_motions_np[:, 9:12], [-1, 3])
-            print(gt_rot.shape)
-            mean_rot_angle = np.mean(np.degrees(_rotation_angle(gt_rot)))
+            gt_q = gt_motions_np[:, :4]
+            gt_trans = gt_motions_np[:, 4:7]
+            mean_rot_angle = np.mean(np.degrees(q_rotation_angle(gt_q)))
             mean_trans = np.mean(np.linalg.norm(gt_trans))
             cam_moving = example_np['groundtruth_camera_motion'][-1]
 
@@ -96,7 +95,7 @@ with tf.Graph().as_default():
             for i in range(gt_boxes_np.shape[0]):
                 label = trainId2label[gt_classes_np[i]]
                 name = 'car' if gt_classes_np[i] == 1 else 'van'
-                if gt_motions_np[i, 15] < 0.5:
+                if gt_motions_np[i, 10] < 0.5:
                   name = name + '_static'
                 color = 'rgb({},{},{})'.format(*label.color)
                 pos = gt_boxes_np[i, :]

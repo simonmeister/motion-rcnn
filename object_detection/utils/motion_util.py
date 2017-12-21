@@ -6,70 +6,11 @@
 import tensorflow as tf
 
 
-# in radians
-CAM_MEAN_SINE = 0.00487
-OBJ_MEAN_SINE = 0.00384
-
-CAM_MEAN_TRANSLATION = 0.684
-OBJ_MEAN_TRANSLATION = 0.442
-
-
-
 def clip_to_open_interval(x, xmin=-1.0, xmax=1.0, eps=1e-08):
   """Clip value to be strictly within the limits.
   E.g., the return value with default limits is safe to be
   used inside acos."""
   return tf.clip_by_value(x, xmin + eps, xmax - eps)
-
-
-def euler_to_rot(x, y, z, sine_inputs=True):
-    """Compose 3d rotations (in batches) from angles.
-    Args:
-      x, y, z: tensor of shape (N, 1)
-      sine_inputs: if true, inputs are given as angle sines with
-        values in [-1, 1], if false, as raw angles in radians.
-    Returns:
-      rotations: tensor of shape (N, 3, 3)
-    """
-    x = tf.expand_dims(x, 1)
-    y = tf.expand_dims(y, 1)
-    z = tf.expand_dims(z, 1)
-
-    if sine_inputs:
-      sin_x = x
-      sin_y = y
-      sin_z = z
-      eps = 1e-07
-      cos_x = tf.sqrt(1 - tf.square(sin_x) + eps)
-      cos_y = tf.sqrt(1 - tf.square(sin_y) + eps)
-      cos_z = tf.sqrt(1 - tf.square(sin_z) + eps)
-    else:
-      sin_x = tf.sin(x)
-      sin_y = tf.sin(y)
-      sin_z = tf.sin(z)
-      cos_x = tf.cos(x)
-      cos_y = tf.cos(y)
-      cos_z = tf.cos(z)
-
-    zero = tf.zeros_like(sin_x)
-    one = tf.ones_like(sin_x)
-
-    rot_x_1 = tf.stack([one, zero, zero], axis=2)
-    rot_x_2 = tf.stack([zero, cos_x, -sin_x], axis=2)
-    rot_x_3 = tf.stack([zero, sin_x, cos_x], axis=2)
-    rot_x = tf.concat([rot_x_1, rot_x_2, rot_x_3], axis=1)
-
-    rot_y_1 = tf.stack([cos_y, zero, sin_y], axis=2)
-    rot_y_2 = tf.stack([zero, one, zero], axis=2)
-    rot_y_3 = tf.stack([-sin_y, zero, cos_y], axis=2)
-    rot_y = tf.concat([rot_y_1, rot_y_2, rot_y_3], axis=1)
-
-    rot_z_1 = tf.stack([cos_z, -sin_z, zero], axis=2)
-    rot_z_2 = tf.stack([sin_z, cos_z, zero], axis=2)
-    rot_z_3 = tf.stack([zero, zero, one], axis=2)
-    rot_z = tf.concat([rot_z_1, rot_z_2, rot_z_3], axis=1)
-
-    return rot_z @ rot_x @ rot_y
 
 
 def _smoothl1_loss(diff, reduce_dims=[1]):
@@ -84,9 +25,7 @@ def _l1_loss(diff, reduce_dims=[1]):
   return tf.reduce_sum(tf.abs(diff), reduce_dims)
 
 
-def _motion_losses(pred, target, has_moving=True, has_pivot=True,
-                   sine_normalizer=None,
-                   trans_normalizer=None):
+def _motion_losses(pred, target, has_moving=True, has_pivot=True):
   """
   Args:
     pred: tensor of shape [num_predictions, num_pred] containing predicted
@@ -106,35 +45,29 @@ def _motion_losses(pred, target, has_moving=True, has_pivot=True,
   assert_target = tf.assert_equal(tf.shape(target)[1], num_gt,
                                   name='motion_loss_assert_target')
   with tf.control_dependencies([assert_pred, assert_target]):
-    rot = tf.reshape(pred[:, 0:9], [-1, 3, 3])
-    trans = pred[:, 9:12]
+    q = tf.reshape(pred[:, 0:4], [-1, 3, 3])
+    trans = pred[:, 4:7]
 
-    gt_rot = tf.reshape(target[:, 0:9], [-1, 3, 3])
-    gt_trans = target[:, 9:12]
+    gt_q = target[:, 0:4]
+    gt_trans = target[:, 4:7]
 
-    d_rot = tf.reshape(gt_rot - rot, [-1, 9])
+    d_q = gt_q - q
     d_trans = gt_trans - trans
 
-    l_angle = _smoothl1_loss(d_rot)
+    l_angle = _smoothl1_loss(d_q)
     l_trans = _smoothl1_loss(d_trans)
 
-    if sine_normalizer is not None:
-      l_angle = l_angle / sine_normalizer
-
-    if trans_normalizer is not None:
-      l_trans = l_trans / trans_normalizer
-
     if has_pivot:
-      pivot = pred[:, 12:15]
-      gt_pivot = target[:, 12:15]
+      pivot = pred[:, 7:10]
+      gt_pivot = target[:, 7:10]
       d_pivot = gt_pivot - pivot
       l_pivot = _smoothl1_loss(d_pivot)
     else:
       l_pivot = None
 
     if has_moving:
-      moving = pred[:, 15:17]
-      gt_moving = target[:, 15]
+      moving = pred[:, 10:12]
+      gt_moving = target[:, 10]
       l_moving = tf.nn.softmax_cross_entropy_with_logits(
           labels=tf.one_hot(tf.cast(gt_moving, dtype=tf.int32),
                             depth=2, dtype=tf.float32),
@@ -151,7 +84,7 @@ def batch_postprocess_motions(pred, has_pivot=True, has_moving=True,
 
   Args:
     pred: tensor of shape [batch_size, num_boxes, num_params],
-      where num_params is 6 + 2 * has_moving + 3 * has_pivot.
+      where num_params is 7 + 2 * has_moving + 3 * has_pivot.
 
   Returns:
     processed: tensor of shape [batch_size, num_boxes, num_params_processed],
@@ -167,15 +100,13 @@ def batch_postprocess_motions(pred, has_pivot=True, has_moving=True,
 def postprocess_motions(pred,
                         has_pivot=True,
                         has_moving=True,
-                        keep_logits=True,
-                        sine_normalizer=None,
-                        trans_normalizer=None):
+                        keep_logits=True):
   """Convert predicted motions to use matrix representation for rotations.
   Restrict range of angle sines to [-1, 1].
   If keep_logits=False, convert moving logits to scores.
 
   By convention,
-  * the first 3 entries (along dim 1) of pred are the 3 angle sines,
+  * the first 4 entries (along dim 1) of pred correspond to the orientation quaternion,
   * the next 3 entries correspond to the translation
   * (optional) next, there are 3 entries for the pivot if has_pivot=True
   * (optional) next, 2 entries (logits for not-moving and moving class)
@@ -192,22 +123,17 @@ def postprocess_motions(pred,
   assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
                                 name='postprocess_motions_assert_pred')
   with tf.control_dependencies([assert_pred]):
-    angle_sines = pred[:, 0:3]
-    if sine_normalizer is not None:
-      angle_sines = angle_sines * sine_normalizer
-    angle_sines = clip_to_open_interval(angle_sines)
-    rot = euler_to_rot(angle_sines[:, 0], angle_sines[:, 1], angle_sines[:, 2])
-    res = tf.reshape(rot, [-1, 9])
-    trans = pred[:, 3:6]
-    if trans_normalizer is not None:
-      trans = trans * trans_normalizer
+    q = pred[:, 0:4]
+    q = q / tf.norm(q, ord='euclidean', keep_dims=True, axis=1)
+    res = q
+    trans = pred[:, 4:7]
     res = tf.concat([res, trans], axis=1)
     if has_pivot:
-      pivot = pred[:, 6:9]
+      pivot = pred[:, 7:10]
       res = tf.concat([res, pivot], axis=1)
-      moving_start = 9
+      moving_start = 10
     else:
-      moving_start = 6
+      moving_start = 7
     if has_moving:
       moving = pred[:, moving_start:moving_start+2]
       if not keep_logits:
@@ -217,29 +143,21 @@ def postprocess_motions(pred,
   return res
 
 
-def postprocess_detection_motions(pred, has_moving=True, keep_logits=True,
-                                  sine_normalizer=OBJ_MEAN_SINE,
-                                  trans_normalizer=OBJ_MEAN_TRANSLATION):
+def postprocess_detection_motions(pred, has_moving=True, keep_logits=True):
   """Postprocess instance motions."""
   return postprocess_motions(pred, has_pivot=True, has_moving=has_moving,
-                             keep_logits=keep_logits,
-                             sine_normalizer=sine_normalizer,
-                             trans_normalizer=trans_normalizer)
+                             keep_logits=keep_logits)
 
 
-def postprocess_camera_motion(pred,
-                              sine_normalizer=CAM_MEAN_SINE,
-                              trans_normalizer=CAM_MEAN_TRANSLATION):
-  return postprocess_motions(pred, has_pivot=False, has_moving=False,
-                             sine_normalizer=sine_normalizer,
-                             trans_normalizer=trans_normalizer)
+def postprocess_camera_motion(pred):
+  return postprocess_motions(pred, has_pivot=False, has_moving=False)
 
 
 def motion_loss(pred, target, weights):
   """
   Args:
-    pred: tensor of shape [batch_size, num_anchors, 11]
-    target: tensor of shape [batch_size, num_anchors, 16]
+    pred: tensor of shape [batch_size, num_anchors, 12]
+    target: tensor of shape [batch_size, num_anchors, 11]
     weights: tensor of shape [batch_size, num_anchors]
   Returns:
     loss: a tensor of shape [batch_size, num_anchors]
@@ -247,13 +165,11 @@ def motion_loss(pred, target, weights):
   batch_size, num_anchors = tf.unstack(tf.shape(pred)[:2])
 
   l_angle, l_trans, l_pivot, l_moving, gt_moving = _motion_losses(
-      postprocess_detection_motions(tf.reshape(pred, [-1, 11]),
+      postprocess_detection_motions(tf.reshape(pred, [-1, 12]),
                                     keep_logits=True),
-      tf.reshape(target, [-1, 16]),
+      tf.reshape(target, [-1, 11]),
       has_moving=True,
-      has_pivot=True,
-      sine_normalizer=OBJ_MEAN_SINE,
-      trans_normalizer=OBJ_MEAN_TRANSLATION)
+      has_pivot=True)
 
   loss = (l_angle + l_trans) * gt_moving + l_pivot + l_moving
   return tf.reshape(loss, [batch_size, num_anchors]) * weights
@@ -262,10 +178,10 @@ def motion_loss(pred, target, weights):
 def camera_motion_loss(pred, target):
   """Compute loss between predicted and ground truth camera motion.
   Args:
-    pred: tensor of shape [batch_size, 6] containing predicted
-      angle sines and translation.
-    target: tensor of shape [batch_size, 12] containing
-      target rotation matrix and translation.
+    pred: tensor of shape [batch_size, 7] containing predicted
+      rotation and translation.
+    target: tensor of shape [batch_size, 7] containing
+      target rotation and translation.
   Returns:
     losses: a scalar
   """
@@ -273,9 +189,7 @@ def camera_motion_loss(pred, target):
     postprocess_camera_motion(pred),
     target,
     has_moving=False,
-    has_pivot=False,
-    sine_normalizer=CAM_MEAN_SINE,
-    trans_normalizer=CAM_MEAN_TRANSLATION)
+    has_pivot=False)
 
   return l_angle + l_trans
 

@@ -128,7 +128,7 @@ class TfExampleDecoder(data_decoder.DataDecoder):
     if load_motion_gt:
       self.keys_to_features.update({
           # Motion R-CNN
-          'image/camera/motion': tf.FixedLenFeature((13,), tf.float32)
+          'image/camera/motion': tf.FixedLenFeature((8,), tf.float32)
       })
       self.items_to_handlers.update({
           # Motion R-CNN
@@ -257,4 +257,4 @@ class TfExampleDecoder(data_decoder.DataDecoder):
     if isinstance(motions, tf.SparseTensor):
       motions = tf.sparse_tensor_to_dense(motions)
     num_instances = keys_to_tensors['image/segmentation/object/count']
-    return tf.reshape(motions, tf.cast(tf.stack([num_instances, 16], 0), tf.int32))
+    return tf.reshape(motions, tf.cast(tf.stack([num_instances, 11], 0), tf.int32))

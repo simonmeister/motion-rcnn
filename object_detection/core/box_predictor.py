@@ -333,7 +333,7 @@ class MaskRCNNBoxPredictor(BoxPredictor):
     self._predict_keypoints = predict_keypoints
     self._fpn_fc_branch = fpn_fc_branch
     self._predict_instance_motions = predict_instance_motions
-    self._num_motion_params = 11 # TODO put this number somewhere else
+    self._num_motion_params = 12 # TODO put this number somewhere else
     if self._predict_keypoints:
       raise ValueError('Keypoint prediction is unimplemented.')
     if ((self._predict_instance_masks or self._predict_keypoints) and
@@ -468,7 +468,7 @@ class MaskRCNNBoxPredictor(BoxPredictor):
         motion_predictions = slim.fully_connected(
             motion_features,
             self._num_classes * self._num_motion_params,
-            weights_initializer=tf.truncated_normal_initializer(0.0, 0.01), # 0.0001
+            weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
             activation_fn=None,
             scope='MotionPredictor')
         instance_motions = tf.reshape(
