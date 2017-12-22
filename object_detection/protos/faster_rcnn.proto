@@ -136,6 +136,7 @@ message FasterRcnn {
   optional Hyperparams first_stage_camera_motion_fc_hyperparams = 32;
 
   optional bool second_stage_motion_loss_from_flow = 33 [default=false];
+  optional bool first_stage_camera_motion_loss_from_flow = 34 [default=false];
 }
 
 

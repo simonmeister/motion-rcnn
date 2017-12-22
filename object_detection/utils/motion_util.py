@@ -4,6 +4,7 @@
 # Written by Simon Meister
 # --------------------------------------------------------
 import tensorflow as tf
+import numpy as np
 
 
 def clip_to_open_interval(x, xmin=-1.0, xmax=1.0, eps=1e-08):
@@ -38,23 +39,23 @@ def _motion_losses(pred, target, has_moving=True, has_pivot=True):
     losses: three-tuple of tensors of shape [num_predictions] representing the
       rotation, translation and pivot loss for each instance
   """
-  num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 12
-  num_gt = 1 + int(has_pivot) * 3 + 12
+  num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 7
+  num_gt = 1 + int(has_pivot) * 3 + 7
   assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
                                 name='motion_loss_assert_pred')
   assert_target = tf.assert_equal(tf.shape(target)[1], num_gt,
                                   name='motion_loss_assert_target')
   with tf.control_dependencies([assert_pred, assert_target]):
-    q = tf.reshape(pred[:, 0:4], [-1, 3, 3])
+    q = pred[:, :4]
     trans = pred[:, 4:7]
 
-    gt_q = target[:, 0:4]
+    gt_q = target[:, :4]
     gt_trans = target[:, 4:7]
 
     d_q = gt_q - q
     d_trans = gt_trans - trans
 
-    l_angle = _smoothl1_loss(d_q)
+    l_angle = _l1_loss(d_q)
     l_trans = _smoothl1_loss(d_trans)
 
     if has_pivot:
@@ -75,6 +76,8 @@ def _motion_losses(pred, target, has_moving=True, has_pivot=True):
     else:
       l_moving = None,
       gt_moving = None
+
+  l_angle = l_angle * 100
   return l_angle, l_trans, l_pivot, l_moving, gt_moving
 
 
@@ -119,12 +122,13 @@ def postprocess_motions(pred,
     processed: tensor of shape [num_boxes, num_out],
       where num_out = num_pred + 3.
   """
-  num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 6
+  num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 7
   assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
                                 name='postprocess_motions_assert_pred')
   with tf.control_dependencies([assert_pred]):
-    q = pred[:, 0:4]
-    q = q / tf.norm(q, ord='euclidean', keep_dims=True, axis=1)
+    q = pred[:, :4]
+    q = q / tf.maximum(
+        tf.norm(q, ord='euclidean', keep_dims=True, axis=1), 1e-12)
     res = q
     trans = pred[:, 4:7]
     res = tf.concat([res, trans], axis=1)
@@ -194,41 +198,69 @@ def camera_motion_loss(pred, target):
   return l_angle + l_trans
 
 
-def _pixels_to_3d(x, y, d, camera_intrinsics):
+# Flow loss
+#
+
+def q_multiply(q1, q2):
+  w1, x1, y1, z1 = tf.split(q1, 4, axis=-1)
+  w2, x2, y2, z2 = tf.split(q2, 4, axis=-1)
+  w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+  x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+  y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
+  z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
+  return tf.concat((w, x, y, z), axis=-1)
+
+
+def q_conjugate(q):
+  w, x, y, z = tf.split(q, 4, axis=-1)
+  return tf.concat([w, -x, -y, -z], axis=-1)
+
+
+def q_rotate(q, p):
+  p = tf.concat([tf.zeros(tf.unstack(tf.shape(p))[:-1] + [1]), p], axis=-1)
+  return q_multiply(q_multiply(q, p), q_conjugate(q))[..., 1:]
+
+
+def _pixels_to_3d(positions, d, camera_intrinsics):
+  x, y = tf.split(positions, 2, axis=-1)
   f, x0, y0 = tf.unstack(camera_intrinsics)
   factor = d / f
   X = (x - x0) * factor
   Y = (y - y0) * factor
   Z = d
-  return X, Y, Z
+  points = tf.concat([X, Y, Z], axis=-1)
+  return points
 
 
-def _3d_to_pixels(X, Y, Z, camera_intrinsics):
+def _3d_to_pixels(points, camera_intrinsics):
+  X, Y, Z = tf.split(points, 3, axis=-1)
   f, x0, y0 = tf.unstack(camera_intrinsics)
   x = f * X / Z + x0
   y = f * Y / Z + y0
-  return x, y
+  positions = tf.concat([x, y], axis=-1)
+  return positions
 
 
-def get_3D_coords(depth, camera_intrinsics):
-  num, height, width = tf.unstack(tf.shape(depth))[:3]
+def get_2D_coords(height, width):
   ys = tf.cast(tf.range(height), tf.float32)
   xs = tf.cast(tf.range(width), tf.float32)
   x, y = tf.meshgrid(xs, ys)
   x = tf.expand_dims(tf.expand_dims(x, 0), 3)
   y = tf.expand_dims(tf.expand_dims(y, 0), 3)
-  X, Y, Z = _pixels_to_3d(x, y, depth, camera_intrinsics)
-  XYZ = tf.concat([X, Y, Z], axis=3)
-  return XYZ
+  return tf.concat([x, y], axis=-1)
 
 
-def flow_motion_loss(boxes, masks, motions, camera_motion,
-                     depth, flow, camera_intrinsics, weights):
-  """Supervise motion with optical flow.
+def get_3D_coords(depth, camera_intrinsics):
+  num, height, width = tf.unstack(tf.shape(depth))[:3]
+  positions = get_2D_coords(height, width)
+  return _pixels_to_3d(positions, depth, camera_intrinsics)
+
+
+def flow_camera_motion_loss(gt_masks, camera_motion, depth, flow, camera_intrinsics):
+  """Supervise camera_motion with optical flow.
   Args:
-    boxes: tensor of shape [batch_size, num_boxes, 4]
-    masks: tensor of shape [batch_size, num_boxes, mask_height, mask_width]
-    camera_motion: tensor of shape [batch_size, 9]
+    gt_masks: tensor of shape [batch_size, num_boxes, image_height, image_width]
+    camera_motion: tensor of shape [batch_size, 7]
     depth: tensor of shape [batch_size, image_height, image_width, 1]
       containing predicted or ground truth depth.
     flow: tensor of shape [batch_size, image_height, image_width, 2]
@@ -237,7 +269,39 @@ def flow_motion_loss(boxes, masks, motions, camera_motion,
   Returns:
     loss: scalar
   """
-  num_batch, num_boxes, mask_height, mask_width = tf.shape(masks)[:4]
+  num_batch, height, width = tf.unstack(tf.shape(flow))[:3]
+  static_pixel_mask = tf.expand_dims(tf.reduce_prod(gt_masks, axis=1), axis=3)
+
+  positions = get_2D_coords(height, width)
+  positions = tf.tile(positions, [num_batch, 1, 1, 1])
+  points = _pixels_to_3d(positions, depth, camera_intrinsics)
+
+  points_t = _apply_camera_motion(points, camera_motion)
+  positions_t = _3d_to_pixels(points_t, camera_intrinsics)
+  reprojection_flow = positions_t - positions
+
+  normalizer = tf.reduce_sum(static_pixel_mask, axis=[1, 2, 3])
+  loss = _l1_loss(
+      (reprojection_flow - flow) * static_pixel_mask,
+      [1, 2, 3]) / normalizer
+  return loss
+
+
+def flow_motion_loss(boxes, masks, motions, camera_motion,
+                     depth, flow, camera_intrinsics, weights):
+  """Supervise motion with optical flow.
+  Args:
+    boxes: tensor of shape [batch_size, num_boxes, 4]
+    masks: tensor of shape [batch_size, num_boxes, mask_height, mask_width]
+    motions: tensor of shape [batch_size, num_boxes, 11]
+    camera_motion: tensor of shape [batch_size, 7]
+    depth: tensor of shape [batch_size, image_height, image_width, 1]
+      containing predicted or ground truth depth.
+    camera_intrinsics: tensor of shape [batch_size, 3]
+  Returns:
+    loss: scalar
+  """
+  num_batch, num_boxes, mask_height, mask_width = tf.unstack(tf.shape(masks))[:4]
   masks = tf.expand_dims(masks, axis=4)
 
   boxes_flat = tf.reshape(boxes, [-1, 4])
@@ -245,6 +309,9 @@ def flow_motion_loss(boxes, masks, motions, camera_motion,
       tf.tile(tf.expand_dims(tf.range(num_batch), 0), [num_boxes, 1]),
       [-1])
 
+  # TODO this will lead to divbyzero if we crop boxes going over image boundaries
+  # TODO we also have to mask these pixels in the losses! how about the mask reg loss in that case??
+  #     
   d_flat = tf.image.crop_and_resize(
       image=depth,
       boxes=boxes_flat,
@@ -252,67 +319,62 @@ def flow_motion_loss(boxes, masks, motions, camera_motion,
       crop_size=[mask_height, mask_width])
   d = tf.reshape(
       d_flat,
-      [num_batch, num_boxes, mask_height, mask_width])
+      [num_batch, num_boxes, mask_height, mask_width, 1])
 
   flow_crops_flat = tf.image.crop_and_resize(
       image=flow,
-      boxes=boxes,
+      boxes=boxes_flat,
       box_ind=batch_indices,
       crop_size=[mask_height, mask_width])
   flow_crops = tf.reshape(
       flow_crops_flat,
-      [num_batch, num_boxes, mask_height, mask_width, -1])
+      [num_batch, num_boxes, mask_height, mask_width, 2])
 
   def _py_create_2d_grids(np_boxes, height, width):
-    x_grids = []
-    y_grids = []
+    pos_grids = []
     num_batch, num_boxes = np_boxes.shape[:2]
     np_boxes_flat = np.reshape(np_boxes, [-1, 4])
-    for i in np_boxes_flat.shape[0]:
-      y0, x0, y1, x1 = np_boxes_flat[i]
+    for i in range(np_boxes_flat.shape[0]):
+      y0, x0, y1, x1 = np_boxes_flat[i, :]
+      y0 *= np.round(height - 1)
+      y1 *= np.round(height - 1)
+      x0 *= np.round(width - 1)
+      x1 *= np.round(width - 1)
       ys = np.linspace(y0, y1, num=height, dtype=np.float32)
       xs = np.linspace(x0, x1, num=width, dtype=np.float32)
       x_grid, y_grid = np.meshgrid(xs, ys)
-      x_grids.append(x_grid)
-      y_grids.append(y_grid)
-    x_flat = np.stack(x_grids, axis=1)
-    y_flat = np.stack(y_grids, axis=1)
-    x = np.reshape(x_flat, [num_batch, num_boxes, height, width])
-    y = np.reshape(y_flat, [num_batch, num_boxes, height, width])
-    return x, y
+      pos_grids.append(np.stack([x_grid, y_grid], axis=2))
+    pos_flat = np.stack(pos_grids, axis=0)
+    pos = np.reshape(pos_flat, [num_batch, num_boxes, height, width, 2])
+    return pos
 
-  x, y = tf.py_func(
-      py_crop,
+  positions = tf.py_func(
+      _py_create_2d_grids,
       [boxes, mask_height, mask_width],
-      [tf.float32, tf.float32])
+      tf.float32)
 
-  # point cloud of shape [batch_size, num_boxes, mask_height, mask_width, 3]
-  X, Y, Z = _pixels_to_3d(x, y, d, camera_intrinsics)
-  points = tf.stack([X, Y, Z], axis=4)
+  points = _pixels_to_3d(positions, d, camera_intrinsics)
 
   # make trailing dimensions of points compatible with motions
   # [batch_size, num_boxes, h, w, 3] -> [h, w, batch_size, num_boxes, 3]
   points = tf.transpose(points, perm=[2, 3, 0, 1, 4])
-  masks = tf.transpose(masks, perm=[2, 3, 0, 1])
+  masks = tf.transpose(masks, perm=[2, 3, 0, 1, 4])
 
   points_t_obj = _apply_object_motions(points, motions, masks)
 
   # make trailing dimensions of points compatible with camera motions
   # [h, w, batch_size, num_boxes, 3]-> [h, w, num_boxes, batch_size, 3]
-  points_t_obj = tf.transpose(points_t_obj, perm=[0, 1, 2, 3, 4])
+  points_t_obj = tf.transpose(points_t_obj, perm=[0, 1, 3, 2, 4])
   points_t = _apply_camera_motion(points_t_obj, camera_motion)
 
   # switch back to [batch_size, num_boxes, h, w, 3]
   points_t = tf.transpose(points_t, perm=[3, 2, 0, 1, 4])
 
-  x_t, y_t = _3d_to_pixels(*tf.unstack(points_t, axis=4, num=3),
-                           camera_intrinsics)
-  positions_t = tf.stack([x_t, y_t], axis=4)
-  positions = tf.stack([x, y], axis=4)
+  positions_t = _3d_to_pixels(points_t, camera_intrinsics)
   reprojection_flow = positions_t - positions
 
-  normalizer = mask_height * mask_width
-  loss = _smoothl1_loss(
+  normalizer = tf.to_float(mask_height * mask_width)
+  loss = _l1_loss(
       reprojection_flow - flow_crops,
       [2, 3, 4]) / normalizer
   return loss * weights
@@ -329,21 +391,12 @@ def _apply_object_motions(points, motions, masks):
   """
   motions = batch_postprocess_motions(motions, has_pivot=True, keep_logits=False,
                                       has_moving=True)
-  rot = tf.reshape(motions[:, :, 0:9], [-1, 3, 3])
-  trans = motions[:, :, 9:12]
-  pivot = motions[:, :, 12:15]
-  moving = motions[:, :, 15:17]
+  q = motions[:, :, :4]
+  trans = motions[:, :, 4:7]
+  pivot = motions[:, :, 7:10]
+  moving = motions[:, :, 10:11]
 
-  # broadcast subtract pivot point to center points at object coord systems
-  points_centered = points - pivots
-
-  # rotate the centered points with the rotation matrix of each object,
-  # [batch_size, num_boxes, 3, 3], [h, w, batch_size, num_boxes, 3] ->
-  # [h, w, batch_size, num_boxes, 3]
-  points_rot_all = tf.einsum('bnij,hwbnj->hwbnj', rot, points_centered)
-
-  # broadcast translation of shape (boxes, 3)
-  points_t_all = points_rot_all + trans + pivots
+  points_t_all = q_rotate(q, points - pivot) + trans + pivot
 
   # compute difference between points and transformed points to obtain increments
   # which we can apply to the original points
@@ -357,21 +410,13 @@ def _apply_object_motions(points, motions, masks):
 def _apply_camera_motion(points, motions):
   """Transform all points with global camera motion.
   Args:
-    points: tensor of shape [mask_height, mask_width, num_boxes, batch_size, 3]
-    motions: tensor of shape [batch_size, 9]
+    points: tensor of shape [..., batch_size, 3] # mask_height, mask_width, num_boxes
+    motions: tensor of shape [batch_size, 7]
   returns:
     points_t: tensor of same shape as 'points'
   """
   motions = postprocess_motions(motions, has_pivot=False, has_moving=False)
-  rot = tf.reshape(motions[:, 0:9], [-1, 3, 3])
-  trans = motions[:, 9:12]
+  q = motions[:, :4]
+  trans = motions[:, 4:7]
 
-  # rotate the points with the camera rotation matrices
-  # [batch_size, 3, 3], [h, w, num_boxes, batch_size, 3] ->
-  # [h, w, num_boxes, batch_size, 3]
-  points_rot = tf.einsum('bij,hwnbj->hwnbj', rotations, points)
-
-  # broadcast translation
-  points_t = points_rot + trans
-
-  return points_t
+  return q_rotate(q, points) + trans

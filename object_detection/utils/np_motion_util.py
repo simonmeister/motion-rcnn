@@ -175,7 +175,7 @@ def _motion_errors(pred, target, has_moving=True):
       rotation, translation, pivot, relative rotation and relative translation
       errors
   """
-  q = np.reshape(pred[:, 0:4], [-1, 3, 3])
+  q = pred[:, :4]
   trans = pred[:, 4:7]
   pivot = pred[:, 7:10]
 
@@ -202,12 +202,12 @@ def _motion_errors(pred, target, has_moving=True):
   d_trans = gt_trans - trans
   d_pivot = gt_pivot - pivot
 
-  err_angle = _rotation_angle(d_rot)
+  err_angle = q_rotation_angle(d_q)
   err_trans = np.linalg.norm(d_trans, axis=1)
   err_pivot = np.linalg.norm(d_pivot, axis=1)
 
   np.seterr(divide='ignore')
-  err_rel_angle = err_angle / q_rotation_angle(gt_rot)
+  err_rel_angle = err_angle / q_rotation_angle(gt_q)
   err_rel_trans = err_trans / np.linalg.norm(gt_trans, axis=1)
   err_rel_angle = err_rel_angle[np.isfinite(err_rel_angle)]
   err_rel_trans = err_rel_trans[np.isfinite(err_rel_trans)]
@@ -232,7 +232,7 @@ def _motion_errors(pred, target, has_moving=True):
       'mPivot': mean_pivot,
       'mRelAngle': mean_rel_angle,
       'mRelTrans': mean_rel_trans,
-      'mAveAngle': np.mean(_rotation_angle(gt_rot)),
+      'mAveAngle': np.mean(q_rotation_angle(gt_q)),
       'mAveTrans': np.mean(np.linalg.norm(gt_trans, axis=1))}
 
   error_dict = {k: np.asscalar(v) for (k, v) in error_dict.items()}

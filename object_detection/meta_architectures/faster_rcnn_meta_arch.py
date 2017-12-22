@@ -225,6 +225,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
                first_stage_camera_motion_loss_weight,
                first_stage_camera_motion_arg_scope,
                second_stage_motion_loss_from_flow,
+               first_stage_camera_motion_loss_from_flow,
                parallel_iterations=16):
     """FasterRCNNMetaArch Constructor.
 
@@ -313,6 +314,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
       first_stage_camera_motion_arg_scope: Slim arg_scope for camera motion fc layers.
       second_stage_motion_loss_from_flow: True if optical flow based 2D motion loss
         should be used for supervision of instance motions (if predicted).
+      first_stage_camera_motion_loss_from_flow: True if optical flow based 2D motion
+        loss should be used for supervision of camera motions (if predicted).
       parallel_iterations: (Optional) The number of iterations allowed to run
         in parallel for calls to tf.map_fn.
     Raises:
@@ -397,6 +400,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
     self._first_stage_camera_motion_loss_weight = first_stage_camera_motion_loss_weight
     self._first_stage_camera_motion_arg_scope = first_stage_camera_motion_arg_scope
     self._second_stage_motion_loss_from_flow = second_stage_motion_loss_from_flow
+    self._first_stage_camera_motion_loss_from_flow = first_stage_camera_motion_loss_from_flow
     self._parallel_iterations = parallel_iterations
 
   @property
@@ -1535,6 +1539,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
           groundtruth_boxlists,
           groundtruth_classes_with_background_list)
       loss_dict.update(self._loss_global(
+          groundtruth_masks_list,
           prediction_dict.get('camera_motion'),
           self._groundtruth_camera_motion_list))
       if not self._first_stage_only:
@@ -1556,22 +1561,27 @@ class FasterRCNNMetaArch(model.DetectionModel):
     return loss_dict
 
   def _loss_global(self,
+                   groundtruth_masks_list,
                    predicted_camera_motion,
                    groundtruth_camera_motion_list):
     loss_dict = {}
     if predicted_camera_motion is not None:
-      #if (self._second_stage_motion_loss_from_flow
-      #    and self._first_stage_camera_motion_loss_weight == 0.0):
-      #  # Camera supervision disabled for complete flow supervision
-      #  # of motion
-      #  return {}
-      if groundtruth_camera_motion_list is None:
-        raise RuntimeError("No ground truth camera motion provided.")
-      groundtruth_camera_motion = tf.stack(
-        groundtruth_camera_motion_list, axis=0)
-      camera_motion_losses = motion_util.camera_motion_loss(
-          predicted_camera_motion,
-          groundtruth_camera_motion)
+      if self._first_stage_camera_motion_loss_from_flow:
+        gt_depth = tf.stack(self._groundtruth_depth_list, axis=0)
+        gt_flow = tf.stack(self._groundtruth_flow_list, axis=0)
+        gt_masks = tf.stack(groundtruth_masks_list, axis=0)
+        camera_motion_losses = motion_util.flow_camera_motion_loss(
+            tf.to_float(gt_masks),
+            predicted_camera_motion, gt_depth, gt_flow,
+            self._camera_intrinsics)
+      else:
+        if groundtruth_camera_motion_list is None:
+          raise RuntimeError("No ground truth camera motion provided.")
+        groundtruth_camera_motion = tf.stack(
+          groundtruth_camera_motion_list, axis=0)
+        camera_motion_losses = motion_util.camera_motion_loss(
+            predicted_camera_motion,
+            groundtruth_camera_motion)
       camera_motion_loss = tf.reduce_mean(camera_motion_losses)
       loss_dict.update({
           'first_stage_camera_motion_loss':
@@ -1713,12 +1723,12 @@ class FasterRCNNMetaArch(model.DetectionModel):
         shape [num_boxes, num_gt_motion_params] containing instance
         motions. Must be provided if motion_predictions is
         not None.
-      camera_prediction: (optional) a 2-D tensor with shape
+      predicted_camera_motion: (optional) a 2-D tensor with shape
         [num_batch, num_camera_motion_params]
         containing instance motion predictions.
       groundtruth_camera_motion_list: (optional) a list of 2-D tf.float32
         tensors of shape [num_gt_camera_motion_params] containing camera
-        motions. Must be provided if camera_prediction is None
+        motions. Must be provided if predicted_camera_motion is None
         and self._second_stage_motion_loss_flow is True.
 
     Returns:
@@ -1853,6 +1863,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
             raise RuntimeError('No groundtruth depth provided.')
           if self._groundtruth_flow_list is None:
             raise RuntimeError('No groundtruth flow provided.')
+          camera_motion = predicted_camera_motion
           if camera_motion is None:
             if groundtruth_camera_motion_list is None:
               raise RuntimeError('No groundtruth or predicted camera motion'
@@ -1861,8 +1872,9 @@ class FasterRCNNMetaArch(model.DetectionModel):
           groundtruth_depth = tf.stack(self._groundtruth_depth_list, axis=0)
           groundtruth_flow = tf.stack(self._groundtruth_flow_list, axis=0)
 
-          masks = tf.to_float(
-              tf.greater_equal(tf.sigmoid(reshaped_mask_predictions), .5))
+          masks = tf.reshape(
+              batch_mask_targets,
+              [batch_size, self.max_num_proposals, mask_height, mask_width])
           second_stage_motion_losses = motion_util.flow_motion_loss(
               proposal_boxes,
               masks,
@@ -1870,8 +1882,8 @@ class FasterRCNNMetaArch(model.DetectionModel):
               camera_motion,
               groundtruth_depth,
               groundtruth_flow,
-              camera_intrinsics,
-              batch_reg_weights # TODO
+              self._camera_intrinsics,
+              batch_mask_weights
               ) / normalizer
 
         second_stage_motion_loss = tf.reduce_sum(

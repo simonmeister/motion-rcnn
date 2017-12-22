@@ -163,6 +163,8 @@ def _build_faster_rcnn_model(frcnn_config, is_training):
         frcnn_config.first_stage_camera_motion_fc_hyperparams, is_training)
   second_stage_motion_loss_from_flow = (
     frcnn_config.second_stage_motion_loss_from_flow)
+  first_stage_camera_motion_loss_from_flow = (
+    frcnn_config.first_stage_camera_motion_loss_from_flow)
 
   hard_example_miner = None
   if frcnn_config.HasField('hard_example_miner'):
@@ -214,7 +216,9 @@ def _build_faster_rcnn_model(frcnn_config, is_training):
       'first_stage_camera_motion_arg_scope':
       first_stage_camera_motion_arg_scope,
       'second_stage_motion_loss_from_flow':
-      second_stage_motion_loss_from_flow}
+      second_stage_motion_loss_from_flow,
+      'first_stage_camera_motion_loss_from_flow':
+      first_stage_camera_motion_loss_from_flow}
 
   if isinstance(second_stage_box_predictor, box_predictor.RfcnBoxPredictor):
     return rfcn_meta_arch.RFCNMetaArch(
