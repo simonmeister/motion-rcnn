@@ -122,28 +122,28 @@ def postprocess_motions(pred,
     processed: tensor of shape [num_boxes, num_out],
       where num_out = num_pred + 3.
   """
-  num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 7
-  assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
-                                name='postprocess_motions_assert_pred')
-  with tf.control_dependencies([assert_pred]):
-    q = pred[:, :4]
-    q = q / tf.maximum(
-        tf.norm(q, ord='euclidean', keep_dims=True, axis=1), 1e-12)
-    res = q
-    trans = pred[:, 4:7]
-    res = tf.concat([res, trans], axis=1)
-    if has_pivot:
-      pivot = pred[:, 7:10]
-      res = tf.concat([res, pivot], axis=1)
-      moving_start = 10
-    else:
-      moving_start = 7
-    if has_moving:
-      moving = pred[:, moving_start:moving_start+2]
-      if not keep_logits:
-        moving_score = tf.nn.softmax(moving)[:, 1:2]
-        moving = tf.cast(moving_score > 0.5, dtype=tf.float32)
-      res = tf.concat([res, moving], axis=1)
+  #num_pred = int(has_moving) * 2 + int(has_pivot) * 3 + 7
+  #assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
+  #                              name='postprocess_motions_assert_pred')
+  #with tf.control_dependencies([assert_pred]):
+  q = pred[:, :4]
+  q = q / tf.maximum(
+      tf.norm(q, ord='euclidean', keep_dims=True, axis=1), 1e-12)
+  res = q
+  trans = pred[:, 4:7]
+  res = tf.concat([res, trans], axis=1)
+  if has_pivot:
+    pivot = pred[:, 7:10]
+    res = tf.concat([res, pivot], axis=1)
+    moving_start = 10
+  else:
+    moving_start = 7
+  if has_moving:
+    moving = pred[:, moving_start:moving_start+2]
+    if not keep_logits:
+      moving_score = tf.nn.softmax(moving)[:, 1:2]
+      moving = tf.cast(moving_score > 0.5, dtype=tf.float32)
+    res = tf.concat([res, moving], axis=1)
   return res
 
 
@@ -270,7 +270,8 @@ def flow_camera_motion_loss(gt_masks, camera_motion, depth, flow, camera_intrins
     loss: scalar
   """
   num_batch, height, width = tf.unstack(tf.shape(flow))[:3]
-  static_pixel_mask = tf.expand_dims(tf.reduce_prod(gt_masks, axis=1), axis=3)
+  static_pixel_mask = tf.expand_dims(
+      tf.reduce_prod(1 - gt_masks, axis=1), axis=3)
 
   positions = get_2D_coords(height, width)
   positions = tf.tile(positions, [num_batch, 1, 1, 1])
@@ -311,7 +312,7 @@ def flow_motion_loss(boxes, masks, motions, camera_motion,
 
   # TODO this will lead to divbyzero if we crop boxes going over image boundaries
   # TODO we also have to mask these pixels in the losses! how about the mask reg loss in that case??
-  #     
+  #
   d_flat = tf.image.crop_and_resize(
       image=depth,
       boxes=boxes_flat,

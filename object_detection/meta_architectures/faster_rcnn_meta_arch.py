@@ -1864,11 +1864,11 @@ class FasterRCNNMetaArch(model.DetectionModel):
           if self._groundtruth_flow_list is None:
             raise RuntimeError('No groundtruth flow provided.')
           camera_motion = predicted_camera_motion
-          if camera_motion is None:
-            if groundtruth_camera_motion_list is None:
-              raise RuntimeError('No groundtruth or predicted camera motion'
-                                 'provided for flow-based motion supervision.')
-            camera_motion = tf.stack(groundtruth_camera_motion_list, axis=0)
+          #if camera_motion is None:
+          if groundtruth_camera_motion_list is None:
+            raise RuntimeError('No groundtruth or predicted camera motion'
+                               'provided for flow-based motion supervision.')
+          camera_motion = tf.stack(groundtruth_camera_motion_list, axis=0)
           groundtruth_depth = tf.stack(self._groundtruth_depth_list, axis=0)
           groundtruth_flow = tf.stack(self._groundtruth_flow_list, axis=0)
 
