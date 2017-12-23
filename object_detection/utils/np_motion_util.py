@@ -47,7 +47,7 @@ def q_conjugate(q):
 
 
 def q_identity(n):
-  return np.concatenate([np.zeros([n, 3]), np.ones([n, 1])], axis=1)
+  return np.concatenate([np.ones([n, 1]), np.zeros([n, 3])], axis=1)
 
 
 def q_rotation_angle(q):
@@ -207,31 +207,31 @@ def _motion_errors(pred, target, has_moving=True):
   err_pivot = np.linalg.norm(d_pivot, axis=1)
 
   np.seterr(divide='ignore')
-  err_rel_angle = err_angle / q_rotation_angle(gt_q)
-  err_rel_trans = err_trans / np.linalg.norm(gt_trans, axis=1)
-  err_rel_angle = err_rel_angle[np.isfinite(err_rel_angle)]
-  err_rel_trans = err_rel_trans[np.isfinite(err_rel_trans)]
+  #err_rel_angle = err_angle / q_rotation_angle(gt_q)
+  #err_rel_trans = err_trans / np.linalg.norm(gt_trans, axis=1)
+  #err_rel_angle = err_rel_angle[np.isfinite(err_rel_angle)]
+  #err_rel_trans = err_rel_trans[np.isfinite(err_rel_trans)]
 
   mean_angle = np.mean(np.degrees(err_angle))
   mean_trans = np.mean(err_trans)
   mean_pivot = np.mean(err_pivot)
 
-  if len(err_rel_angle) > 0:
-    mean_rel_angle = np.mean(err_rel_angle)
-  else:
-    mean_rel_angle = np.array([0])
+  #if len(err_rel_angle) > 0:
+  #  mean_rel_angle = np.mean(err_rel_angle)
+  #else:
+  #  mean_rel_angle = np.array([0])
 
-  if len(err_rel_trans) > 0:
-    mean_rel_trans = np.mean(err_rel_trans)
-  else:
-    mean_rel_trans = np.array([0])
+  #if len(err_rel_trans) > 0:
+  #  mean_rel_trans = np.mean(err_rel_trans)
+  #else:
+  #  mean_rel_trans = np.array([0])
 
   error_dict = {
       'mAngle': mean_angle,
       'mTrans': mean_trans,
       'mPivot': mean_pivot,
-      'mRelAngle': mean_rel_angle,
-      'mRelTrans': mean_rel_trans,
+      #'mRelAngle': mean_rel_angle,
+      #'mRelTrans': mean_rel_trans,
       'mAveAngle': np.mean(q_rotation_angle(gt_q)),
       'mAveTrans': np.mean(np.linalg.norm(gt_trans, axis=1))}
 
@@ -263,8 +263,8 @@ def evaluate_instance_motions(gt_boxes,
         'mAngle': 0,
         'mTrans': 0,
         'mPivot': 0,
-        'mRelAngle': 0,
-        'mRelTrans': 0,
+        #'mRelAngle': 0,
+        #'mRelTrans': 0,
         'mAveAngle': 0,
         'mAveTrans': 0}
   pred = np.stack(pred_list, axis=0)

@@ -584,7 +584,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
           512,
           kernel_size=[1, 1],
           activation_fn=tf.nn.relu)
-      camera_features_resized = tf.reduce_mean(camera_features, [1, 2], keep_dims=True)
+      #camera_features_resized = tf.reduce_mean(camera_features, [1, 2], keep_dims=True)
       camera_features_resized = tf.image.resize_bilinear(
           camera_features_conv, [7, 7])
       camera_features_flat = slim.flatten(camera_features_resized)
@@ -598,7 +598,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
       camera_motion = slim.fully_connected(
           camera_features_flat,
           7, #self._num_camera_motion_params, # TODO
-          weights_initializer=tf.truncated_normal_initializer(0.0, 0.01),
+          weights_initializer=tf.truncated_normal_initializer(0.0, 0.0001),
           activation_fn=None,
           scope='CameraMotionPredictor')
     prediction_dict = {
@@ -1864,7 +1864,7 @@ class FasterRCNNMetaArch(model.DetectionModel):
           if self._groundtruth_flow_list is None:
             raise RuntimeError('No groundtruth flow provided.')
           camera_motion = predicted_camera_motion
-          #if camera_motion is None:
+          #if camera_motion is None: # TODO switch this logic, i.e. use camera gt if available?
           if groundtruth_camera_motion_list is None:
             raise RuntimeError('No groundtruth or predicted camera motion'
                                'provided for flow-based motion supervision.')

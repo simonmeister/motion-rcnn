@@ -55,7 +55,7 @@ def _motion_losses(pred, target, has_moving=True, has_pivot=True):
     d_q = gt_q - q
     d_trans = gt_trans - trans
 
-    l_angle = _l1_loss(d_q)
+    l_angle = _smoothl1_loss(d_q)
     l_trans = _smoothl1_loss(d_trans)
 
     if has_pivot:
@@ -126,7 +126,10 @@ def postprocess_motions(pred,
   #assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
   #                              name='postprocess_motions_assert_pred')
   #with tf.control_dependencies([assert_pred]):
-  q = pred[:, :4]
+  w, x, y, z = tf.split(pred[:, :4], 4, axis=-1)
+  # the initial (and zero) prediction should be the identity rotation (1, 0, 0, 0)
+  w = 1 - w
+  q = tf.concat([w, x, y, z], axis=-1)
   q = q / tf.maximum(
       tf.norm(q, ord='euclidean', keep_dims=True, axis=1), 1e-12)
   res = q

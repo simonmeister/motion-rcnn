@@ -144,6 +144,7 @@ def _create_tfexample(label_map_dict,
   q_cam2_to_cam1 = q_conjugate(q_cam1_to_cam2)
   trans_cam1_to_cam2 = trans_cam2 - q_rotate(q_cam1_to_cam2, trans_cam1)
   trans_cam2_to_cam1 = trans_cam1 - q_rotate(q_cam2_to_cam1, trans_cam2)
+  print(q_cam1_to_cam2)
   camera_motion = np.concatenate([q_cam1_to_cam2,
                                   trans_cam1_to_cam2,
                                   np.array([camera_moving], dtype=np.float32)])
@@ -181,14 +182,13 @@ def _create_tfexample(label_map_dict,
       p2_cam1 = q_rotate(q_cam2_to_cam1, p2) + trans_cam2_to_cam1
       trans = p2_cam1 - q_rotate(q, p1)
       if moving == 0:
-        q = np.array([0, 0, 0, 1], dtype=np.float32)
+        q = np.array([1, 0, 0, 0], dtype=np.float32)
         trans = np.array([0, 0, 0], dtype=np.float32)
       mv = np.array([moving], dtype=np.float32)
       motion = np.concatenate([q, trans, p1, mv])
-      if moving == 1:
-        diff += np.sum(np.abs(
-            q_rotate(q_cam1_to_cam2, q_rotate(q, p1) + trans) + trans_cam1_to_cam2
-            - p2))
+      diff += np.sum(np.abs(
+          q_rotate(q_cam1_to_cam2, q_rotate(q, p1) + trans) + trans_cam1_to_cam2
+          - p2))
       motions.append(motion)
   print(diff)
   if len(boxes) > 0:
