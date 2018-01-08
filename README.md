@@ -2,7 +2,7 @@
 
 This repository contains the TensorFlow prototype implementation of my bachelor thesis
 [Motion R-CNN: Instance-level 3D Motion Estimation with Region-based CNNs](
-https://www.tensorflow.org/install/install_linux).
+https://drive.google.com/open?id=18hSyz2Wgd-cb-Psju5_oPUyZyE3T3k7j).
 
 Building on the TensorFlow Object Detection API, the code supports
 - prediction of instance masks
