@@ -4,10 +4,11 @@ This repository contains the TensorFlow prototype implementation of my bachelor 
 [Motion R-CNN: Instance-level 3D Motion Estimation with Region-based CNNs](
 https://drive.google.com/open?id=18hSyz2Wgd-cb-Psju5_oPUyZyE3T3k7j).
 
-Building on the TensorFlow Object Detection API, the code supports
+In addition to the functionality provided by the TensorFlow Object Detection API (at the time of writing), the code supports:
 - prediction of instance masks
 - prediction of 3D camera motion
-- prediction of 3D instance motions.
+- prediction of 3D instance motions
+- Feature Pyramid Networks
 
 Note that the code only supports training on the Virtual KITTI dataset,
 but it is easy to adapt it to other datasets.
