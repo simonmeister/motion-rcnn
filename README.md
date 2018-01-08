@@ -15,7 +15,7 @@ but it is easy to adapt it to other datasets.
 Motion prediction is fully optional and the code can be used as a Mask R-CNN
 implementation.
 Support for cityscapes is implemented, but using the records created with `create_citiscapes_tf_record.py` 
-may required adapting the `data_decoder` as the record interface changed.
+may require adapting the `data_decoder` or the record writing as the record interface changed.
 
 ### License
 
