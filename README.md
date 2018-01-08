@@ -1,18 +1,70 @@
 # Motion R-CNN
 
-This repository contains the original
-[TensorFlow](https://tensorflow.org)
-implementation of
-[Motion R-CNN](TODO).
-As a baseline, training of
-[Mask R-CNN](https://arxiv.org/abs/1703.06870)
-on Cityscapes is supported.
+This repository contains the TensorFlow prototype implementation of my bachelor thesis
+[Motion R-CNN: Instance-level 3D Motion Estimation with Region-based CNNs](
+https://www.tensorflow.org/install/install_linux).
 
-## Requirements
+Building on the TensorFlow Object Detection API, the code supports
+- prediction of instance masks
+- prediction of 3D camera motion
+- prediction of 3D instance motions.
 
+Note that the code only supports training on the Virtual KITTI dataset,
+but it is easy to adapt it to other datasets.
+Motion prediction is fully optional and the code can be used as a Mask R-CNN
+implementation.
+Support for cityscapes is implemented, but using the records created with `create_citiscapes_tf_record.py` 
+may required adapting the `data_decoder` as the record interface changed.
+
+### License
+
+Motion R-CNN is released under the MIT License (refer to the LICENSE file for details).
+
+## Usage
+
+### Requirements
 - [tensorflow (>= 1.3.0)](https://www.tensorflow.org/install/install_linux) with GPU support.
-- `pip install opencv-python pandas`
+- sudo apt-get install protobuf-compiler
+- `pip install opencv-python pandas pillow lxml matplotlib`
+
+### Setup
+- from the project root directory, run ``export PYTHONPATH=$PYTHONPATH:`pwd`:`pwd`/slim``
+- download and extract the 
+[pre-trained ResNet-50](http://download.tensorflow.org/models/resnet_v1_50_2016_08_28.tar.gz )
+model to `object_detection/data`
+- download all of the 
+[Virtual KITTI](http://www.europe.naverlabs.com/Research/Computer-Vision/Proxy-Virtual-Worlds)
+ground truth and extract the folders into a directory named `vkitti`.
+- cd to the project root directory
+- run `protoc object_detection/protos/*.proto --python_out=.` 
+- run `protoc object_detection/protos/*.proto --python_out=.` 
+- run `python create_vkitti_tf_record.py --data_dir=<data_parent_dir> --output_dir=data/records --set val`
+- run `python create_vkitti_tf_record.py --data_dir=<data_parent_dir> --output_dir=data/records --set train`
+
+Note that `<data_parent_dir>` is the directory containing the `vkitti` directory.
+
+### Training & evaluating
+Use
+- `python train.py --logtostderr --pipeline_config_path=data/configs/motion_rcnn_vkitti_cam.config --train_dir=output/train/motion_rcnn_vkitti_cam --gpu 0`
+- `python eval.py --logtostderr --pipeline_config_path=data/configs/motion_rcnn_vkitti_cam.config --checkpoint_dir=output/train/motion_rcnn_vkitti_cam --eval_dir=output/eval/motion_rcnn_vkitti_cam`
+
+to train and evaluate a model with camera and instance motion prediction.
+You can adapt the configurations found in `data/configs/`. For a description of the configuration parameters, see `object_detection/protos`.
+
+## Navigating the code
+
+The following files were added or modified from the original Object Detection API code
+- [motion_util.py](object_detection/utils/motion_util.py): losses for training the motion estimation and post-processing utilities
+- [np_motion_util.py](object_detection/utils/np_motion_util.py): 
+
+The following tests were added or modified:
+- object_detection.core.box_predictor_test
+- object_detection.core.post_processing_test
+- object_detection.models.faster_rcnn_resnet_v1_feature_extractor_test
+- object_detection.models.faster_rcnn_resnet_v1_fpn_feature_extractor_test
+- object_detection.anchor_generators.multiple_grid_anchor_generator_test
+- object_detection.meta_architectures.faster_rcnn_meta_arch_test
 
 ## Acknowledgments
 This repository is based on the
-[Tensorflow Object Detection API](https://github.com/tensorflow/models/tree/master/research/object_detection).
+[TensorFlow Object Detection API](https://github.com/tensorflow/models/tree/master/research/object_detection).
