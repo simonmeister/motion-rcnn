@@ -126,7 +126,8 @@ def postprocess_motions(pred,
   #assert_pred = tf.assert_equal(tf.shape(pred)[1], num_pred,
   #                              name='postprocess_motions_assert_pred')
   #with tf.control_dependencies([assert_pred]):
-  w, x, y, z = tf.split(pred[:, :4], 4, axis=-1)
+  q = pred[:, :4] # * 1e-4
+  w, x, y, z = tf.split(q, 4, axis=-1)
   # the initial (and zero) prediction should be the identity rotation (1, 0, 0, 0)
   w = 1 - w
   q = tf.concat([w, x, y, z], axis=-1)
