@@ -57,10 +57,13 @@ The following files were added or modified from the original Object Detection AP
 - [motion_util.py](object_detection/utils/motion_util.py): losses for training the motion estimation and post-processing utilities
 - [np_motion_util.py](object_detection/utils/np_motion_util.py): composition of optical flow using motion predictions and performance evaluation utilities
 - [create_vkitti_tf_record.py](object_detection/create_vkitti_tf_record.py): process virtual kitti dataset
+- [create_cityscapes_tf_record.py](object_detection/create_cityscapes_tf_record.py): process cityscapes dataset
 - [faster_rcnn_meta_arch.py](object_detection/meta_architectures/faster_rcnn_meta_arch.py): adapted to support instance mask, instance motion, and camera motion training.
 - [target_assigner.py](object_detection/core/target_assigner.py): updated to support mask and motion target assignment
 - [box_predictor.py](object_detection/core/box_predictor.py): updated to support FPN as well as mask and motion prediction
 - [post_processing.py](object_detection/core/post_processing.py): updated to pass through instance motions
+- [faster_rcnn_resnet_v1_fpn_feature_extractor.py](object_detection/models/faster_rcnn_resnet_v1_fpn_feature_extractor.py): FPN feature extractor
+- [faster_rcnn_resnet_v1_feature_extractor.py](object_detection/models/faster_rcnn_resnet_v1_fpn_feature_extractor.py): added support for camera branch
 
 Additionally, some proto params and builders were modified, and extensions were made to
 [eval_util.py](object_detection/eval_util.py),
