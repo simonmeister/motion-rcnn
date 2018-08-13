@@ -5,15 +5,15 @@ This repository contains the TensorFlow prototype implementation of my bachelor 
 https://drive.google.com/open?id=18hSyz2Wgd-cb-Psju5_oPUyZyE3T3k7j).
 
 In addition to the functionality provided by the TensorFlow Object Detection API (at the time of writing), the code supports:
-- prediction of instance masks
-- prediction of 3D camera motion
-- prediction of 3D instance motions
+- prediction of instance masks for detected objects
 - Feature Pyramid Networks
+- prediction of inter-frame 3D camera ego-motion (translation and rotation) given a second image temporally consecutive to the first image
+- prediction of 3D motions (translation and rotation) between the two frames for all objects detected in the first frame
 
 Note that the code only supports training on the Virtual KITTI dataset,
 but it is easy to adapt it to other datasets.
-Motion prediction is fully optional and the code can be used as a Mask R-CNN
-implementation.
+Motion prediction and frame pair input is fully optional and the code can be used as a Mask R-CNN
+implementation with single image input.
 Support for cityscapes is implemented, but using the records created with `create_citiscapes_tf_record.py` 
 may require adapting the `data_decoder` or the record writing as the record interface changed.
 
